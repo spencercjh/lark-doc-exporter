@@ -1,0 +1,31 @@
+:root {
+  color-scheme: light;
+  --text: #132238;
+  --muted: #4f637a;
+  --border: #b8c6d8;
+  --surface: #ffffff;
+  --surface-subtle: #eef3f9;
+  --code-bg: #eef3f9;
+  --accent: #0b6bcb;
+}
+
+body {
+  font-size: 13.5px;
+}
+
+h1 {
+  color: #0c3b73;
+}
+
+h2 {
+  color: #1454a1;
+}
+
+th {
+  background: #e4eefb;
+}
+
+img {
+  border-radius: 12px;
+}
+

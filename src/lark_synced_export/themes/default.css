@@ -1,0 +1,16 @@
+:root {
+  color-scheme: light;
+  --text: #1f2328;
+  --muted: #59636e;
+  --border: #d0d7de;
+  --surface: #ffffff;
+  --surface-subtle: #f6f8fa;
+  --code-bg: #f6f8fa;
+  --accent: #0969da;
+}
+
+h1,
+h2 {
+  letter-spacing: 0;
+}
+

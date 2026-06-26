@@ -1,0 +1,14 @@
+{
+  "name": "lark-synced-export",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local HTML/CSS to PDF renderer for synced Lark exports",
+  "scripts": {
+    "render-pdf": "node scripts/render_html_to_pdf.mjs"
+  },
+  "dependencies": {
+    "marked": "^15.0.12",
+    "playwright": "^1.54.2"
+  }
+}
+
