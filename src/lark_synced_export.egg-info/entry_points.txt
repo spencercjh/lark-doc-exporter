@@ -1,2 +1,0 @@
-[console_scripts]
-lark-synced-export = lark_synced_export.cli:main
