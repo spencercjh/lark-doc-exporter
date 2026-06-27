@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from lark_synced_export import skill_install
 from lark_synced_export.skill_install import (
     INSTALL_METADATA_FILENAME,
     bundled_skill_dir,
@@ -82,12 +83,17 @@ def test_run_skill_install_force_overwrites_unknown_existing_directory(tmp_path:
     )
 
 
-def test_run_skill_install_force_recovers_from_corrupted_metadata(tmp_path: Path):
+@pytest.mark.parametrize("metadata_payload", ["{not json", "[]", '"x"', "1"])
+def test_run_skill_install_force_recovers_from_invalid_metadata(
+    tmp_path: Path, metadata_payload: str
+):
     home = tmp_path / "home"
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
     target_dir.mkdir(parents=True)
     (target_dir / "SKILL.md").write_text("custom", encoding="utf-8")
-    (target_dir / INSTALL_METADATA_FILENAME).write_text("{not json", encoding="utf-8")
+    (target_dir / INSTALL_METADATA_FILENAME).write_text(
+        metadata_payload, encoding="utf-8"
+    )
 
     result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
 
@@ -95,6 +101,17 @@ def test_run_skill_install_force_recovers_from_corrupted_metadata(tmp_path: Path
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_run_skill_install_auto_rejects_host_root_file(tmp_path: Path):
+    home = tmp_path / "home"
+    codex_root = home / ".agents" / "skills"
+    codex_root.parent.mkdir(parents=True)
+    codex_root.write_text("not a directory", encoding="utf-8")
+    (home / ".claude" / "skills").mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="not a directory"):
+        run_skill_install(host="auto", force=False, dry_run=True, home=home)
 
 
 def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
@@ -112,6 +129,31 @@ def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_run_skill_install_restores_existing_target_when_replace_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    run_skill_install(host="codex", force=False, dry_run=False, home=home)
+    (target_dir / "SKILL.md").write_text("managed but existing", encoding="utf-8")
+
+    real_replace = skill_install.replace_path
+
+    def fail_stage_replace(source: Path, destination: Path) -> None:
+        if source.name == "lark-doc-exporter" and destination == target_dir:
+            raise OSError("swap failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(skill_install, "replace_path", fail_stage_replace)
+
+    with pytest.raises(OSError, match="swap failed"):
+        run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+    assert (target_dir / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "managed but existing"
 
 
 def test_run_skill_install_dry_run_does_not_write_files(tmp_path: Path):

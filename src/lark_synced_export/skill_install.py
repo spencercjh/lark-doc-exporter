@@ -6,6 +6,7 @@ from importlib.resources import as_file, files
 import json
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Final
 
 from . import __version__
@@ -49,8 +50,17 @@ def host_roots(home: Path | None = None) -> dict[str, Path]:
     return {name: base_home / suffix for name, suffix in HOST_SUFFIXES.items()}
 
 
+def validate_host_root(host: str, root: Path) -> None:
+    if root.exists() and not root.is_dir():
+        raise RuntimeError(
+            f"Supported host skill root for {host} exists but is not a directory: {root}"
+        )
+
+
 def resolve_targets(host: str, home: Path | None = None) -> list[InstallTarget]:
     roots = host_roots(home)
+    for name, root in roots.items():
+        validate_host_root(name, root)
     if host == "auto":
         targets = [
             InstallTarget(name, root, root / SKILL_NAME, False)
@@ -76,9 +86,12 @@ def read_install_metadata(target_dir: Path) -> dict | None:
     if not metadata_path.is_file():
         return None
     try:
-        return json.loads(metadata_path.read_text(encoding="utf-8"))
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
 
 
 def is_managed_install(target_dir: Path) -> bool:
@@ -133,23 +146,48 @@ def write_install_metadata(stage_dir: Path, host: str) -> None:
     )
 
 
+def replace_path(source: Path, destination: Path) -> None:
+    source.replace(destination)
+
+
 def install_target(target: InstallTarget) -> None:
     if target.create_parent:
         target.root.mkdir(parents=True, exist_ok=True)
 
-    staging_dir = target.root / f".{SKILL_NAME}.{target.host}.staging"
-    if staging_dir.exists():
-        shutil.rmtree(staging_dir)
+    temp_root = Path(
+        tempfile.mkdtemp(prefix=f".{SKILL_NAME}.{target.host}.", dir=target.root)
+    )
+    staging_dir = temp_root / SKILL_NAME
+    backup_dir = temp_root / "backup"
+    keep_temp_root = False
 
-    with as_file(bundled_skill_dir()) as source_dir:
-        shutil.copytree(source_dir, staging_dir)
+    try:
+        with as_file(bundled_skill_dir()) as source_dir:
+            shutil.copytree(source_dir, staging_dir)
 
-    write_install_metadata(staging_dir, target.host)
+        write_install_metadata(staging_dir, target.host)
 
-    if target.target_dir.exists():
-        shutil.rmtree(target.target_dir)
+        if not target.target_dir.exists():
+            replace_path(staging_dir, target.target_dir)
+            return
 
-    staging_dir.replace(target.target_dir)
+        replace_path(target.target_dir, backup_dir)
+        try:
+            replace_path(staging_dir, target.target_dir)
+        except Exception:
+            keep_temp_root = True
+            try:
+                replace_path(backup_dir, target.target_dir)
+            except Exception as restore_error:
+                raise RuntimeError(
+                    "Failed to replace the installed skill directory and failed to "
+                    f"restore the previous install. Recover from {backup_dir} manually."
+                ) from restore_error
+            keep_temp_root = False
+            raise
+    finally:
+        if not keep_temp_root:
+            shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def run_skill_install(
