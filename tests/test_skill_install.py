@@ -70,6 +70,19 @@ def test_run_skill_install_refuses_unknown_existing_directory_without_force(
         run_skill_install(host="codex", force=False, dry_run=False, home=home)
 
 
+def test_run_skill_install_refuses_dangling_target_symlink_without_force(
+    tmp_path: Path,
+):
+    home = tmp_path / "home"
+    root_dir = home / ".agents" / "skills"
+    target_dir = root_dir / "lark-doc-exporter"
+    root_dir.mkdir(parents=True)
+    target_dir.symlink_to(home / "missing-target")
+
+    with pytest.raises(RuntimeError, match="--force"):
+        run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+
 def test_run_skill_install_force_overwrites_unknown_existing_directory(tmp_path: Path):
     home = tmp_path / "home"
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
@@ -129,6 +142,16 @@ def test_run_skill_install_explicit_codex_ignores_invalid_claude_root(tmp_path: 
     assert (target_dir / "SKILL.md").is_file()
 
 
+def test_run_skill_install_explicit_host_rejects_dangling_root_symlink(tmp_path: Path):
+    home = tmp_path / "home"
+    codex_root = home / ".agents" / "skills"
+    codex_root.parent.mkdir(parents=True)
+    codex_root.symlink_to(home / "missing-root")
+
+    with pytest.raises(RuntimeError, match="exists but is not a directory"):
+        run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+
 def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
     home = tmp_path / "home"
 
@@ -184,6 +207,34 @@ def test_run_skill_install_restores_existing_target_when_replace_fails(
     assert (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     ) == "managed but existing"
+
+
+def test_run_skill_install_all_rolls_back_earlier_targets_when_later_apply_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    codex_target = home / ".agents" / "skills" / "lark-doc-exporter"
+    claude_target = home / ".claude" / "skills" / "lark-doc-exporter"
+
+    run_skill_install(host="codex", force=False, dry_run=False, home=home)
+    run_skill_install(host="claude", force=False, dry_run=False, home=home)
+    (codex_target / "SKILL.md").write_text("codex original", encoding="utf-8")
+    (claude_target / "SKILL.md").write_text("claude original", encoding="utf-8")
+
+    real_replace = skill_install.replace_path
+
+    def fail_claude_stage_replace(source: Path, destination: Path) -> None:
+        if source.name == "lark-doc-exporter" and destination == claude_target:
+            raise OSError("claude swap failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(skill_install, "replace_path", fail_claude_stage_replace)
+
+    with pytest.raises(OSError, match="claude swap failed"):
+        run_skill_install(host="all", force=False, dry_run=False, home=home)
+
+    assert (codex_target / "SKILL.md").read_text(encoding="utf-8") == "codex original"
+    assert (claude_target / "SKILL.md").read_text(encoding="utf-8") == "claude original"
 
 
 def test_run_skill_install_dry_run_does_not_write_files(tmp_path: Path):

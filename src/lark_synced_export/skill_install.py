@@ -37,6 +37,14 @@ class PlannedInstall:
     reason: str
 
 
+@dataclass(frozen=True)
+class AppliedInstall:
+    host: str
+    target_dir: Path
+    temp_root: Path
+    backup_dir: Path | None
+
+
 def bundled_skill_dir():
     return files("lark_synced_export").joinpath("skill_assets", SKILL_NAME)
 
@@ -50,8 +58,12 @@ def host_roots(home: Path | None = None) -> dict[str, Path]:
     return {name: base_home / suffix for name, suffix in HOST_SUFFIXES.items()}
 
 
+def path_entry_exists(path: Path) -> bool:
+    return path.exists(follow_symlinks=False)
+
+
 def validate_host_root(host: str, root: Path) -> None:
-    if root.exists() and not root.is_dir():
+    if path_entry_exists(root) and not root.is_dir():
         raise RuntimeError(
             f"Supported host skill root for {host} exists but is not a directory: {root}"
         )
@@ -61,12 +73,12 @@ def resolve_targets(host: str, home: Path | None = None) -> list[InstallTarget]:
     roots = host_roots(home)
     if host == "auto":
         for name, root in roots.items():
-            if root.exists():
+            if path_entry_exists(root):
                 validate_host_root(name, root)
         targets = [
             InstallTarget(name, root, root / SKILL_NAME, False)
             for name, root in roots.items()
-            if root.exists()
+            if path_entry_exists(root)
         ]
         if not targets:
             raise RuntimeError(
@@ -103,7 +115,7 @@ def is_managed_install(target_dir: Path) -> bool:
 
 
 def plan_target(target: InstallTarget, force: bool) -> PlannedInstall:
-    if not target.target_dir.exists():
+    if not path_entry_exists(target.target_dir):
         return PlannedInstall(
             host=target.host,
             root=str(target.root),
@@ -153,7 +165,36 @@ def replace_path(source: Path, destination: Path) -> None:
     source.replace(destination)
 
 
-def install_target(target: InstallTarget) -> None:
+def remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    shutil.rmtree(path)
+
+
+def rollback_install(applied: AppliedInstall) -> None:
+    if applied.backup_dir is None:
+        if path_entry_exists(applied.target_dir):
+            remove_path(applied.target_dir)
+        return
+
+    failed_target_dir = applied.temp_root / "failed-target"
+    if path_entry_exists(applied.target_dir):
+        replace_path(applied.target_dir, failed_target_dir)
+    try:
+        replace_path(applied.backup_dir, applied.target_dir)
+    except Exception as restore_error:
+        raise RuntimeError(
+            "Failed to roll back the installed skill directory. Recover from "
+            f"{applied.backup_dir} manually."
+        ) from restore_error
+
+
+def cleanup_install(applied: AppliedInstall) -> None:
+    shutil.rmtree(applied.temp_root, ignore_errors=True)
+
+
+def install_target(target: InstallTarget) -> AppliedInstall:
     if target.create_parent:
         target.root.mkdir(parents=True, exist_ok=True)
 
@@ -162,7 +203,6 @@ def install_target(target: InstallTarget) -> None:
     )
     staging_dir = temp_root / SKILL_NAME
     backup_dir = temp_root / "backup"
-    keep_temp_root = False
 
     try:
         with as_file(bundled_skill_dir()) as source_dir:
@@ -170,15 +210,19 @@ def install_target(target: InstallTarget) -> None:
 
         write_install_metadata(staging_dir, target.host)
 
-        if not target.target_dir.exists():
+        if not path_entry_exists(target.target_dir):
             replace_path(staging_dir, target.target_dir)
-            return
+            return AppliedInstall(
+                host=target.host,
+                target_dir=target.target_dir,
+                temp_root=temp_root,
+                backup_dir=None,
+            )
 
         replace_path(target.target_dir, backup_dir)
         try:
             replace_path(staging_dir, target.target_dir)
         except Exception:
-            keep_temp_root = True
             try:
                 replace_path(backup_dir, target.target_dir)
             except Exception as restore_error:
@@ -186,11 +230,16 @@ def install_target(target: InstallTarget) -> None:
                     "Failed to replace the installed skill directory and failed to "
                     f"restore the previous install. Recover from {backup_dir} manually."
                 ) from restore_error
-            keep_temp_root = False
             raise
-    finally:
-        if not keep_temp_root:
-            shutil.rmtree(temp_root, ignore_errors=True)
+        return AppliedInstall(
+            host=target.host,
+            target_dir=target.target_dir,
+            temp_root=temp_root,
+            backup_dir=backup_dir,
+        )
+    except Exception:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
 
 
 def run_skill_install(
@@ -209,8 +258,28 @@ def run_skill_install(
             "targets": [asdict(item) for item in planned],
         }
 
-    for target in targets:
-        install_target(target)
+    applied_targets: list[AppliedInstall] = []
+    try:
+        for target in targets:
+            applied_targets.append(install_target(target))
+    except Exception:
+        rollback_errors: list[str] = []
+        for applied in reversed(applied_targets):
+            try:
+                rollback_install(applied)
+            except Exception as rollback_error:
+                rollback_errors.append(f"{applied.host}: {rollback_error}")
+            finally:
+                cleanup_install(applied)
+        if rollback_errors:
+            raise RuntimeError(
+                "Failed to install all requested skill targets and rollback was incomplete: "
+                + "; ".join(rollback_errors)
+            )
+        raise
+    else:
+        for applied in applied_targets:
+            cleanup_install(applied)
 
     return {
         "ok": True,
