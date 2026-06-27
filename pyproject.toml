@@ -3,14 +3,14 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lark-synced-export"
+name = "lark-doc-exporter"
 version = "0.1.0"
 description = "Export Feishu/Lark docs with synced blocks to Markdown and themeable PDF"
 readme = "README.md"
 requires-python = ">=3.11"
 
 [project.scripts]
-lark-synced-export = "lark_synced_export.cli:main"
+lark-doc-exporter = "lark_synced_export.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -23,4 +23,3 @@ lark_synced_export = ["themes/*.css"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-

@@ -1,4 +1,4 @@
-# lark-synced-export
+# lark-doc-exporter
 
 Export Feishu/Lark docs with synced blocks expanded into:
 
@@ -17,7 +17,7 @@ final file does not include the AI disclaimer injected by that server-side path.
 ## Install
 
 ```bash
-cd /home/azureuser/spencercjh/lark-synced-export
+cd /home/azureuser/spencercjh/lark-doc-exporter
 pip install -e .
 npm install
 npx playwright install chromium
@@ -26,7 +26,7 @@ npx playwright install chromium
 ## Usage
 
 ```bash
-lark-synced-export \
+lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/demo \
   --formats markdown,pdf \
@@ -49,7 +49,7 @@ Built-in themes:
 You can also layer custom CSS on top:
 
 ```bash
-lark-synced-export \
+lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/company \
   --formats pdf \
@@ -65,4 +65,3 @@ lark-synced-export \
   `--keep-temp-doc` only when you need to inspect that intermediate document.
 - Feishu image `authcode` URLs expire quickly, so image localization happens in
   the same run as the Markdown export.
-

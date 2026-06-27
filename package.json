@@ -1,5 +1,5 @@
 {
-  "name": "lark-synced-export",
+  "name": "lark-doc-exporter",
   "private": true,
   "version": "0.1.0",
   "description": "Local HTML/CSS to PDF renderer for synced Lark exports",
@@ -11,4 +11,3 @@
     "playwright": "^1.54.2"
   }
 }
-
