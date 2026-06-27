@@ -102,7 +102,7 @@ def read_install_metadata(target_dir: Path) -> dict | None:
         return None
     try:
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
         return None
