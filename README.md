@@ -51,6 +51,8 @@ Then use it directly:
 
 ```bash
 lark-doc-exporter doctor
+lark-doc-exporter skill install --dry-run
+lark-doc-exporter skill install
 
 lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
@@ -58,6 +60,13 @@ lark-doc-exporter \
   --formats markdown,pdf \
   --theme default
 ```
+
+Auto mode installs the companion skill into every detected supported host:
+
+- Codex: `~/.agents/skills/lark-doc-exporter`
+- Claude Code: `~/.claude/skills/lark-doc-exporter`
+
+Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `--dry-run` previews the install plan and target directories without writing files. Use `--force` only when you intentionally want to replace an existing unmanaged target directory.
 
 ## Chromium Setup
 
