@@ -32,7 +32,10 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-lark_synced_export = ["themes/*.css"]
+lark_synced_export = [
+  "themes/*.css",
+  "skill_assets/lark-doc-exporter/SKILL.md",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
