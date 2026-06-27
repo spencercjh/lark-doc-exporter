@@ -95,7 +95,10 @@ lark-doc-exporter \
 git clone https://github.com/spencercjh/lark-doc-exporter
 cd lark-doc-exporter
 uv sync --python 3.13 --group dev
-uv run pytest
+make fmt
+make ci
+
+# Optional runtime/environment check (not part of required CI)
 uv run lark-doc-exporter doctor
 ```
 
