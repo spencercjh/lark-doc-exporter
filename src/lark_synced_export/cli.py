@@ -7,11 +7,18 @@ from pathlib import Path
 
 from .doctor import run_doctor
 from .exporter import export_document
+from .skill_install import run_skill_install
 
 
 def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Expand Feishu/Lark synced blocks, export Markdown, and render local PDF."
+        description="Expand Feishu/Lark synced blocks, export Markdown, and render local PDF.",
+        epilog=(
+            "Other commands:\n"
+            "  doctor\n"
+            "  skill install [--host {auto,codex,claude,all}] [--force] [--dry-run]"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--doc",
@@ -54,11 +61,55 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def parse_skill_install_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="lark-doc-exporter skill install",
+        description="Install the bundled companion skill into Codex and/or Claude Code.",
+    )
+    parser.add_argument(
+        "--host",
+        choices=["auto", "codex", "claude", "all"],
+        default="auto",
+        help="Install target selection. Auto mode uses only already-detected hosts.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing unmanaged target directory.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show planned target paths without writing files.",
+    )
+    return parser.parse_args(argv)
+
+
 def run_main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     if argv and argv[0] == "doctor":
         print(json.dumps(run_doctor(), ensure_ascii=False, indent=2))
         return 0
+
+    if argv[:2] == ["skill", "install"]:
+        args = parse_skill_install_args(argv[2:])
+        print(
+            json.dumps(
+                run_skill_install(
+                    host=args.host,
+                    force=args.force,
+                    dry_run=args.dry_run,
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+
+    if argv and argv[0] == "skill":
+        raise SystemExit(
+            "unsupported skill command; expected `lark-doc-exporter skill install`"
+        )
 
     args = parse_export_args(argv)
     formats = [item.strip() for item in args.formats.split(",") if item.strip()]

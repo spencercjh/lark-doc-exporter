@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from lark_synced_export import skill_install
+from lark_synced_export.cli import run_main
 from lark_synced_export.skill_install import (
     INSTALL_METADATA_FILENAME,
     bundled_skill_dir,
@@ -194,3 +195,69 @@ def test_run_skill_install_dry_run_does_not_write_files(tmp_path: Path):
     assert result["targets"][0]["target_dir"] == str(target_dir)
     assert result["targets"][0]["action"] == "install"
     assert target_dir.exists() is False
+
+
+def test_run_main_skill_install_prints_json(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "lark_synced_export.cli.run_skill_install",
+        lambda host, force, dry_run: {
+            "ok": True,
+            "dry_run": dry_run,
+            "targets": [
+                {
+                    "host": host,
+                    "action": "install",
+                    "target_dir": "/tmp/.agents/skills/lark-doc-exporter",
+                }
+            ],
+        },
+    )
+
+    assert run_main(["skill", "install", "--host", "codex", "--dry-run"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert payload["targets"][0]["host"] == "codex"
+
+
+def test_run_main_help_mentions_doctor_and_skill_install(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        run_main(["--help"])
+
+    assert excinfo.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "doctor" in help_text
+    assert "skill install" in help_text
+
+
+def test_run_main_export_route_still_uses_default_flags(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+):
+    calls: dict = {}
+
+    def fake_export_document(**kwargs):
+        calls.update(kwargs)
+        return {"outputs": {"markdown": str(tmp_path / "demo.md")}}
+
+    monkeypatch.setattr("lark_synced_export.cli.export_document", fake_export_document)
+
+    assert (
+        run_main(
+            [
+                "--doc",
+                "demo-token",
+                "--output-dir",
+                str(tmp_path),
+                "--formats",
+                "markdown",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert calls["doc_ref"] == "demo-token"
+    assert calls["formats"] == ["markdown"]
+    assert payload["outputs"]["markdown"].endswith("demo.md")
