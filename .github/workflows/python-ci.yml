@@ -2,9 +2,23 @@ name: python-ci
 
 on:
   pull_request:
+    paths:
+      - '.github/workflows/python-ci.yml'
+      - 'Makefile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'src/**'
+      - 'tests/**'
   push:
     branches:
       - main
+    paths:
+      - '.github/workflows/python-ci.yml'
+      - 'Makefile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'src/**'
+      - 'tests/**'
   workflow_dispatch:
 
 jobs:
