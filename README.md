@@ -3,7 +3,7 @@
 Export Feishu/Lark docs with synced blocks expanded into:
 
 - Markdown with localized images
-- Themeable local-rendered PDF
+- Themeable locally rendered PDF
 
 The PDF path deliberately avoids the Feishu `docs_ai -> export pdf` route so the
 final file does not include the AI disclaimer injected by that server-side path.
@@ -12,29 +12,55 @@ final file does not include the AI disclaimer injected by that server-side path.
 
 - `lark-cli` configured with a user session
 - Python 3.11+
-- Node.js 20+
+- A working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
 
-## Install
+## Quick Start
 
 ```bash
-cd /home/azureuser/spencercjh/lark-doc-exporter
-uv sync --group dev
-npm install
-npx playwright install chromium
+uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter doctor
 ```
 
-`uv` manages the Python environment and dependencies. The PDF renderer still
-uses the existing Node.js toolchain for `marked` and Playwright Chromium.
-
-## Usage
+If Chromium is missing, prepare it once:
 
 ```bash
-uv run lark-doc-exporter \
+uvx --from playwright playwright install chromium
+```
+
+Then run an export without cloning the repo:
+
+```bash
+uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/demo \
   --formats markdown,pdf \
   --theme default
 ```
+
+## Install As A Tool
+
+For repeated use, install the command once:
+
+```bash
+uv tool install git+https://github.com/spencercjh/lark-doc-exporter
+```
+
+Then use it directly:
+
+```bash
+lark-doc-exporter doctor
+
+lark-doc-exporter \
+  --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
+  --output-dir exports/demo \
+  --formats markdown,pdf \
+  --theme default
+```
+
+## Chromium Setup
+
+- `doctor` reports whether both `lark-cli` and Chromium are ready.
+- If you already have a browser binary, you can point the exporter at it with `LARK_DOC_EXPORTER_CHROMIUM=/path/to/chromium`.
+- If `LARK_DOC_EXPORTER_CHROMIUM` is set to a missing path, the command fails explicitly instead of silently falling back.
 
 ## Output
 
@@ -52,7 +78,7 @@ Built-in themes:
 You can also layer custom CSS on top:
 
 ```bash
-uv run lark-doc-exporter \
+lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/company \
   --formats pdf \
@@ -63,7 +89,11 @@ uv run lark-doc-exporter \
 ## Development
 
 ```bash
+git clone https://github.com/spencercjh/lark-doc-exporter
+cd lark-doc-exporter
+uv sync --group dev
 uv run pytest
+uv run lark-doc-exporter doctor
 ```
 
 ## Notes
