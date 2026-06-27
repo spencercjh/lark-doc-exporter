@@ -18,15 +18,18 @@ final file does not include the AI disclaimer injected by that server-side path.
 
 ```bash
 cd /home/azureuser/spencercjh/lark-doc-exporter
-pip install -e .
+uv sync --group dev
 npm install
 npx playwright install chromium
 ```
 
+`uv` manages the Python environment and dependencies. The PDF renderer still
+uses the existing Node.js toolchain for `marked` and Playwright Chromium.
+
 ## Usage
 
 ```bash
-lark-doc-exporter \
+uv run lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/demo \
   --formats markdown,pdf \
@@ -49,12 +52,18 @@ Built-in themes:
 You can also layer custom CSS on top:
 
 ```bash
-lark-doc-exporter \
+uv run lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/company \
   --formats pdf \
   --theme company \
   --css /path/to/your-company-print.css
+```
+
+## Development
+
+```bash
+uv run pytest
 ```
 
 ## Notes
