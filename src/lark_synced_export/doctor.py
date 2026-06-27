@@ -38,7 +38,9 @@ def check_lark_cli() -> DoctorCheck:
             detail=f"`lark-cli` was found but is not runnable: {exc}",
         )
 
-    return DoctorCheck(name="lark-cli", ok=True, detail=f"`lark-cli` is available at {binary}.")
+    return DoctorCheck(
+        name="lark-cli", ok=True, detail=f"`lark-cli` is available at {binary}."
+    )
 
 
 def check_pdf_runtime() -> DoctorCheck:

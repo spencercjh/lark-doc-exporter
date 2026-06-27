@@ -19,7 +19,11 @@ lark-doc-exporter = "lark_synced_export.cli:main"
 [dependency-groups]
 dev = [
   "pytest>=9,<10",
+  "ruff>=0.12,<1",
 ]
+
+[tool.ruff]
+target-version = "py313"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
