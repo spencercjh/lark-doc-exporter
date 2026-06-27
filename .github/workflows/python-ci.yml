@@ -67,9 +67,15 @@ jobs:
         run: make lint
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: changes
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -94,9 +100,15 @@ jobs:
         run: make test
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: changes
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
