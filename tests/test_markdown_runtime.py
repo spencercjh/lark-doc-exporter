@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from lark_synced_export.markdown_runtime import render_markdown_body
+from lark_synced_export.markdown_runtime import _normalize_table_inline_code, render_markdown_body
 
 
 def test_render_markdown_body_supports_tables_and_fenced_code(tmp_path: Path):
@@ -53,3 +53,9 @@ def test_render_markdown_body_keeps_non_table_inline_code_literal(tmp_path: Path
 
     html = body_html.read_text(encoding="utf-8")
     assert "<code>kubectl api-resources \\| grep monitoring.coreos.com/v1</code>" in html
+
+
+def test_normalize_table_inline_code_skips_fenced_code_blocks():
+    text = "```text\n| `a\\|b` |\n```\n"
+
+    assert _normalize_table_inline_code(text) == text

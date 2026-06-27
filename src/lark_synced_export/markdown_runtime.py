@@ -13,12 +13,20 @@ MARKDOWN_EXTENSIONS = [
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
+def _normalize_inline_code_match(match: re.Match[str]) -> str:
+    normalized = match.group(1).replace("\\|", "|")
+    return f"`{normalized}`"
+
+
 def _normalize_table_inline_code(text: str) -> str:
     lines: list[str] = []
+    in_fence = False
     for line in text.splitlines(keepends=True):
         stripped = line.lstrip()
-        if stripped.startswith("|") and "`" in line:
-            line = INLINE_CODE_RE.sub(lambda match: f"`{match.group(1).replace('\\|', '|')}`", line)
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+        elif not in_fence and stripped.startswith("|") and "`" in line:
+            line = INLINE_CODE_RE.sub(_normalize_inline_code_match, line)
         lines.append(line)
     return "".join(lines)
 
