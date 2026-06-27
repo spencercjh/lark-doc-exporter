@@ -11,7 +11,7 @@ final file does not include the AI disclaimer injected by that server-side path.
 ## Requirements
 
 - `lark-cli` configured with a user session
-- Python 3.13
+- Python 3.14
 - A working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
 
 If you use `uvx` / `uv tool install`, `uv` can provision the required Python for
@@ -103,7 +103,7 @@ lark-doc-exporter \
 ```bash
 git clone https://github.com/spencercjh/lark-doc-exporter
 cd lark-doc-exporter
-uv sync --python 3.13 --group dev
+uv sync --python 3.14 --group dev
 make fmt
 make ci
 

@@ -14,7 +14,7 @@ permissions:
   pull-requests: read
 
 env:
-  PYTHON_VERSION: "3.13"
+  PYTHON_VERSION: "3.14"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,7 +50,7 @@ jobs:
           fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Set up Python 3.13
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -61,7 +61,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dev dependencies
-        run: uv sync --python 3.13 --group dev
+        run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run lint
         run: make lint
@@ -83,7 +83,7 @@ jobs:
           fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Set up Python 3.13
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -94,7 +94,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dev dependencies
-        run: uv sync --python 3.13 --group dev
+        run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run tests
         run: make test
@@ -116,7 +116,7 @@ jobs:
           fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Set up Python 3.13
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -127,7 +127,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dev dependencies
-        run: uv sync --python 3.13 --group dev
+        run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run build
         run: make build
