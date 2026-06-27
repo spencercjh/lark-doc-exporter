@@ -24,8 +24,14 @@ def check_lark_cli() -> DoctorCheck:
         )
 
     try:
-        subprocess.run([binary, "--help"], capture_output=True, text=True, check=True)
-    except Exception as exc:
+        subprocess.run(
+            [binary, "--help"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         return DoctorCheck(
             name="lark-cli",
             ok=False,

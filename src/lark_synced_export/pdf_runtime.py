@@ -50,7 +50,7 @@ def check_chromium_ready() -> tuple[bool, str]:
             browser, source = launch_browser(playwright)
             browser.close()
         return True, f"Chromium is available via {source}."
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - diagnostic probe surfaces any failure as a hint
         return (
             False,
             "Chromium is not ready. Install a system Chrome/Chromium binary or run "
