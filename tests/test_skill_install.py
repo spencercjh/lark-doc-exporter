@@ -114,6 +114,20 @@ def test_run_skill_install_auto_rejects_host_root_file(tmp_path: Path):
         run_skill_install(host="auto", force=False, dry_run=True, home=home)
 
 
+def test_run_skill_install_explicit_codex_ignores_invalid_claude_root(tmp_path: Path):
+    home = tmp_path / "home"
+    claude_root = home / ".claude" / "skills"
+    claude_root.parent.mkdir(parents=True)
+    claude_root.write_text("not a directory", encoding="utf-8")
+
+    result = run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    assert result["targets"][0]["host"] == "codex"
+    assert target_dir.is_dir()
+    assert (target_dir / "SKILL.md").is_file()
+
+
 def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
     home = tmp_path / "home"
 
@@ -126,6 +140,21 @@ def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
 
     assert initial["targets"][0]["action"] == "install"
     assert result["targets"][0]["action"] == "upgrade"
+    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_skill_install_force_recovers_from_non_utf8_metadata(tmp_path: Path):
+    home = tmp_path / "home"
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    target_dir.mkdir(parents=True)
+    (target_dir / "SKILL.md").write_text("custom", encoding="utf-8")
+    (target_dir / INSTALL_METADATA_FILENAME).write_bytes(b"\xff")
+
+    result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
+
+    assert result["targets"][0]["action"] == "overwrite"
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )

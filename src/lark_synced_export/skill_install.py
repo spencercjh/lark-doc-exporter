@@ -59,9 +59,10 @@ def validate_host_root(host: str, root: Path) -> None:
 
 def resolve_targets(host: str, home: Path | None = None) -> list[InstallTarget]:
     roots = host_roots(home)
-    for name, root in roots.items():
-        validate_host_root(name, root)
     if host == "auto":
+        for name, root in roots.items():
+            if root.exists():
+                validate_host_root(name, root)
         targets = [
             InstallTarget(name, root, root / SKILL_NAME, False)
             for name, root in roots.items()
@@ -75,6 +76,8 @@ def resolve_targets(host: str, home: Path | None = None) -> list[InstallTarget]:
         return targets
 
     selected_hosts = ("codex", "claude") if host == "all" else (host,)
+    for name in selected_hosts:
+        validate_host_root(name, roots[name])
     return [
         InstallTarget(name, roots[name], roots[name] / SKILL_NAME, True)
         for name in selected_hosts
@@ -87,7 +90,7 @@ def read_install_metadata(target_dir: Path) -> dict | None:
         return None
     try:
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     if not isinstance(payload, dict):
         return None
