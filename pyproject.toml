@@ -7,10 +7,19 @@ name = "lark-doc-exporter"
 version = "0.1.0"
 description = "Export Feishu/Lark docs with synced blocks to Markdown and themeable PDF"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
+dependencies = [
+  "markdown>=3.7,<4",
+  "playwright>=1.54,<2",
+]
 
 [project.scripts]
 lark-doc-exporter = "lark_synced_export.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=9,<10",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

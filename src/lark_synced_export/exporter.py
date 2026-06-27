@@ -10,11 +10,10 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
+from .markdown_runtime import render_markdown_body
+from .pdf_runtime import render_html_to_pdf
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 THEMES_DIR = Path(__file__).with_name("themes")
-RENDER_SCRIPT = REPO_ROOT / "scripts" / "render_html_to_pdf.mjs"
-MARKED_BIN = REPO_ROOT / "node_modules" / ".bin" / "marked"
 
 REF_RE = re.compile(
     r'<synced_reference\b[^>]*src-block-id="([^"]+)"[^>]*src-token="([^"]+)"[^>]*>\s*</synced_reference>',
@@ -438,21 +437,6 @@ def resolve_theme_css(theme_name: str) -> Path:
     return theme_path
 
 
-def ensure_marked_binary() -> Path:
-    if MARKED_BIN.is_file():
-        return MARKED_BIN
-    raise FileNotFoundError("missing local `marked` binary; run `npm install` in the repo root first")
-
-
-def render_markdown_to_html_body(markdown_path: Path, body_html: Path) -> None:
-    marked_bin = ensure_marked_binary()
-    subprocess.run(
-        [str(marked_bin), "-i", str(markdown_path), "-o", str(body_html), "--gfm"],
-        cwd=REPO_ROOT,
-        check=True,
-    )
-
-
 def build_render_html(
     body_html: Path,
     render_html: Path,
@@ -485,18 +469,6 @@ def build_render_html(
 </html>
 """
     render_html.write_text(html, encoding="utf-8")
-
-
-def render_pdf(render_html: Path, output_pdf: Path) -> None:
-    if not RENDER_SCRIPT.is_file():
-        raise FileNotFoundError(f"missing render helper: {RENDER_SCRIPT}")
-    subprocess.run(
-        ["node", str(RENDER_SCRIPT), str(render_html.resolve()), str(output_pdf.resolve())],
-        cwd=REPO_ROOT,
-        check=True,
-    )
-
-
 def export_document(
     doc_ref: str,
     output_dir: Path,
@@ -521,7 +493,7 @@ def export_document(
     localized_image_count = 0
     theme_css_path: Path | None = None
 
-    with tempfile.TemporaryDirectory(prefix="lark-synced-export-", dir=REPO_ROOT) as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="lark-doc-exporter-") as tmpdir:
         stage_dir = Path(tmpdir)
         temp_doc_token, temp_doc_url = create_temp_doc(normalized_xml, stage_dir)
         try:
@@ -543,9 +515,9 @@ def export_document(
             body_html = stage_dir / "body.html"
             render_html = stage_dir / "render.html"
             output_pdf = output_dir / f"{final_stem}.pdf"
-            render_markdown_to_html_body(localized_markdown_path, body_html)
+            render_markdown_body(localized_markdown_path, body_html)
             build_render_html(body_html, render_html, temp_title, theme_css_path, override_css)
-            render_pdf(render_html, output_pdf)
+            render_html_to_pdf(render_html, output_pdf)
             outputs["pdf"] = str(output_pdf)
 
     return {
@@ -560,4 +532,3 @@ def export_document(
         "outputs": outputs,
         "pdf_renderer": "local-chromium" if "pdf" in formats else None,
     }
-

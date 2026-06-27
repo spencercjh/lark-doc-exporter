@@ -5,10 +5,11 @@ import json
 import sys
 from pathlib import Path
 
+from .doctor import run_doctor
 from .exporter import export_document
 
 
-def parse_args() -> argparse.Namespace:
+def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Expand Feishu/Lark synced blocks, export Markdown, and render local PDF."
     )
@@ -44,11 +45,16 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional extra CSS file layered on top of the selected theme for PDF output.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def run_main() -> int:
-    args = parse_args()
+def run_main(argv: list[str] | None = None) -> int:
+    argv = list(argv if argv is not None else sys.argv[1:])
+    if argv and argv[0] == "doctor":
+        print(json.dumps(run_doctor(), ensure_ascii=False, indent=2))
+        return 0
+
+    args = parse_export_args(argv)
     formats = [item.strip() for item in args.formats.split(",") if item.strip()]
     allowed = {"markdown", "pdf"}
     invalid = [fmt for fmt in formats if fmt not in allowed]
