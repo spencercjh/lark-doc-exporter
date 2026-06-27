@@ -77,9 +77,41 @@ def test_run_skill_install_force_overwrites_unknown_existing_directory(tmp_path:
     result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
 
     assert result["targets"][0]["action"] == "overwrite"
-    assert "lark-doc-exporter doctor" in (
-        target_dir / "SKILL.md"
-    ).read_text(encoding="utf-8")
+    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_skill_install_force_recovers_from_corrupted_metadata(tmp_path: Path):
+    home = tmp_path / "home"
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    target_dir.mkdir(parents=True)
+    (target_dir / "SKILL.md").write_text("custom", encoding="utf-8")
+    (target_dir / INSTALL_METADATA_FILENAME).write_text("{not json", encoding="utf-8")
+
+    result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
+
+    assert result["targets"][0]["action"] == "overwrite"
+    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
+    home = tmp_path / "home"
+
+    initial = run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    (target_dir / "SKILL.md").write_text("stale managed content", encoding="utf-8")
+
+    result = run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+    assert initial["targets"][0]["action"] == "install"
+    assert result["targets"][0]["action"] == "upgrade"
+    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_run_skill_install_dry_run_does_not_write_files(tmp_path: Path):

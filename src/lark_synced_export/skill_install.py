@@ -75,7 +75,10 @@ def read_install_metadata(target_dir: Path) -> dict | None:
     metadata_path = target_dir / INSTALL_METADATA_FILENAME
     if not metadata_path.is_file():
         return None
-    return json.loads(metadata_path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
 
 
 def is_managed_install(target_dir: Path) -> bool:
