@@ -200,7 +200,9 @@ def fetch_full_xml(doc_ref: str) -> str:
     return payload["data"]["document"]["content"]
 
 
-def fetch_synced_block(src_token: str, src_block_id: str, cache: dict[tuple[str, str], str]) -> str:
+def fetch_synced_block(
+    src_token: str, src_block_id: str, cache: dict[tuple[str, str], str]
+) -> str:
     key = (src_token, src_block_id)
     if key in cache:
         return cache[key]
@@ -258,7 +260,9 @@ def expand_synced_references(xml_text: str) -> tuple[str, int]:
 
 
 def parse_attrs(attr_text: str) -> dict[str, str]:
-    return {name: value for name, value in re.findall(r'([:\w-]+)="([^"]*)"', attr_text)}
+    return {
+        name: value for name, value in re.findall(r'([:\w-]+)="([^"]*)"', attr_text)
+    }
 
 
 def render_attr(name: str, value: str) -> str:
@@ -342,7 +346,9 @@ def slugify_filename(name: str) -> str:
     return name.strip("-") or "export"
 
 
-def export_doc(temp_doc_token: str, output_dir: Path, file_stem: str, formats: list[str]) -> dict[str, str]:
+def export_doc(
+    temp_doc_token: str, output_dir: Path, file_stem: str, formats: list[str]
+) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     export_cwd = output_dir.parent
     export_leaf = output_dir.name
@@ -406,7 +412,9 @@ def suffix_from_content_type(content_type: str) -> str:
     return suffix or ".bin"
 
 
-def localize_markdown_images(markdown_path: Path, localized_path: Path, assets_dir: Path) -> int:
+def localize_markdown_images(
+    markdown_path: Path, localized_path: Path, assets_dir: Path
+) -> int:
     text = markdown_path.read_text(encoding="utf-8")
     assets_dir.mkdir(parents=True, exist_ok=True)
     image_count = 0
@@ -469,6 +477,8 @@ def build_render_html(
 </html>
 """
     render_html.write_text(html, encoding="utf-8")
+
+
 def export_document(
     doc_ref: str,
     output_dir: Path,
@@ -497,7 +507,9 @@ def export_document(
         stage_dir = Path(tmpdir)
         temp_doc_token, temp_doc_url = create_temp_doc(normalized_xml, stage_dir)
         try:
-            raw_markdown_path = export_markdown(temp_doc_token, stage_dir, f"{final_stem}.raw")
+            raw_markdown_path = export_markdown(
+                temp_doc_token, stage_dir, f"{final_stem}.raw"
+            )
         finally:
             if not keep_temp_doc:
                 delete_temp_doc(temp_doc_token)
@@ -505,7 +517,9 @@ def export_document(
         render_root = output_dir if "markdown" in formats else stage_dir
         localized_markdown_path = render_root / f"{final_stem}.md"
         assets_dir = render_root / "images"
-        localized_image_count = localize_markdown_images(raw_markdown_path, localized_markdown_path, assets_dir)
+        localized_image_count = localize_markdown_images(
+            raw_markdown_path, localized_markdown_path, assets_dir
+        )
 
         if "markdown" in formats:
             outputs["markdown"] = str(localized_markdown_path)
@@ -516,7 +530,9 @@ def export_document(
             render_html = stage_dir / "render.html"
             output_pdf = output_dir / f"{final_stem}.pdf"
             render_markdown_body(localized_markdown_path, body_html)
-            build_render_html(body_html, render_html, temp_title, theme_css_path, override_css)
+            build_render_html(
+                body_html, render_html, temp_title, theme_css_path, override_css
+            )
             render_html_to_pdf(render_html, output_pdf)
             outputs["pdf"] = str(output_pdf)
 

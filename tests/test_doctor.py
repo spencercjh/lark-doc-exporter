@@ -8,7 +8,10 @@ from lark_synced_export.doctor import check_lark_cli
 def test_run_main_doctor_prints_json(monkeypatch, capsys):
     monkeypatch.setattr(
         "lark_synced_export.cli.run_doctor",
-        lambda: {"ok": True, "checks": [{"name": "lark-cli", "ok": True, "detail": "ok"}]},
+        lambda: {
+            "ok": True,
+            "checks": [{"name": "lark-cli", "ok": True, "detail": "ok"}],
+        },
     )
 
     assert run_main(["doctor"]) == 0
@@ -30,7 +33,9 @@ def test_check_lark_cli_reports_missing_binary(monkeypatch):
 def test_check_lark_cli_probes_help_with_timeout(monkeypatch):
     calls: dict = {}
 
-    monkeypatch.setattr("lark_synced_export.doctor.shutil.which", lambda _name: "/usr/bin/lark-cli")
+    monkeypatch.setattr(
+        "lark_synced_export.doctor.shutil.which", lambda _name: "/usr/bin/lark-cli"
+    )
 
     def fake_run(*args, **kwargs):
         calls["args"] = args

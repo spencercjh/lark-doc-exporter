@@ -13,8 +13,14 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Expand Feishu/Lark synced blocks, export Markdown, and render local PDF."
     )
-    parser.add_argument("--doc", required=True, help="Original docx/wiki URL or token accepted by `lark-cli docs +fetch`.")
-    parser.add_argument("--output-dir", required=True, help="Directory for output artifacts.")
+    parser.add_argument(
+        "--doc",
+        required=True,
+        help="Original docx/wiki URL or token accepted by `lark-cli docs +fetch`.",
+    )
+    parser.add_argument(
+        "--output-dir", required=True, help="Directory for output artifacts."
+    )
     parser.add_argument(
         "--formats",
         default="markdown,pdf",

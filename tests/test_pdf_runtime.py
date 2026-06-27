@@ -99,7 +99,9 @@ def test_check_chromium_ready_returns_helpful_failure(monkeypatch):
 def test_resolve_browser_executable_rejects_missing_env_override(monkeypatch):
     calls: dict = {}
     monkeypatch.setenv("LARK_DOC_EXPORTER_CHROMIUM", "/missing/chromium")
-    monkeypatch.setattr("lark_synced_export.pdf_runtime.Path.is_file", lambda self: False)
+    monkeypatch.setattr(
+        "lark_synced_export.pdf_runtime.Path.is_file", lambda self: False
+    )
     monkeypatch.setattr(
         "lark_synced_export.pdf_runtime.sync_playwright",
         lambda: FakePlaywrightContext(calls),
