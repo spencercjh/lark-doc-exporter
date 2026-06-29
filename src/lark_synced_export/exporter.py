@@ -11,6 +11,7 @@ from html import escape
 from pathlib import Path
 
 from .callout_markdown import normalize_markdown_callouts_file
+from .mention_markdown import normalize_markdown_user_mentions_file
 from .markdown_runtime import render_markdown_body
 from .pdf_runtime import render_html_to_pdf
 
@@ -570,6 +571,7 @@ def export_document(
         localized_image_count = localize_markdown_images(
             raw_markdown_path, localized_markdown_path, assets_dir
         )
+        normalize_markdown_user_mentions_file(localized_markdown_path)
         normalize_markdown_callouts_file(localized_markdown_path)
 
         if "markdown" in formats:
