@@ -109,3 +109,93 @@ def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Pat
 
     assert "dir" not in capture["kwargs"]
     assert result["outputs"]["pdf"].endswith("demo.pdf")
+
+
+def test_export_document_normalizes_callouts_before_render(
+    monkeypatch, tmp_path: Path
+):
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    raw_markdown_path = stage_dir / "demo.raw.md"
+    raw_markdown_path.write_text(
+        "<callout emoji=\"💡\">\nBody\n</callout>\n",
+        encoding="utf-8",
+    )
+    theme_css = tmp_path / "theme.css"
+    theme_css.write_text(":root { --accent: #123456; }", encoding="utf-8")
+    capture: dict[str, str] = {}
+
+    class DummyTempDir:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return str(stage_dir)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_localize(src: Path, dst: Path, _assets: Path) -> int:
+        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        return 0
+
+    def fake_render_markdown(markdown_path: Path, body_html: Path) -> None:
+        capture["render_input"] = markdown_path.read_text(encoding="utf-8")
+        body_html.write_text("<div>rendered</div>", encoding="utf-8")
+
+    def fake_render_pdf(_html: Path, output_pdf: Path) -> None:
+        output_pdf.write_bytes(b"%PDF-1.4\n")
+
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.tempfile.TemporaryDirectory", DummyTempDir
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.fetch_full_xml", lambda _doc: "<title>Demo</title>"
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.expand_synced_references", lambda xml: (xml, 0)
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.normalize_xml_for_create",
+        lambda xml, suffix: (xml, "Demo"),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.create_temp_doc",
+        lambda xml, stage: ("tmp-token", "https://example.com/doc"),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.export_markdown",
+        lambda token, stage, stem: raw_markdown_path,
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.delete_temp_doc", lambda _token: None
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.localize_markdown_images", fake_localize
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.resolve_theme_css", lambda _theme: theme_css
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.render_markdown_body", fake_render_markdown
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.render_html_to_pdf", fake_render_pdf
+    )
+
+    result = export_document(
+        doc_ref="demo",
+        output_dir=tmp_path / "out",
+        formats=["markdown", "pdf"],
+        title_suffix="",
+        file_stem="demo",
+        keep_temp_doc=False,
+        theme_name="default",
+        override_css=None,
+    )
+
+    normalized = "> [!TIP]\n> 💡 Body"
+    markdown_output = Path(result["outputs"]["markdown"]).read_text(encoding="utf-8")
+
+    assert markdown_output == f"{normalized}\n"
+    assert capture["render_input"] == f"{normalized}\n"
