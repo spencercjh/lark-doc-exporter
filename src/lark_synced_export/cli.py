@@ -26,7 +26,9 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
         help="Original docx/wiki URL or token accepted by `lark-cli docs +fetch`.",
     )
     parser.add_argument(
-        "--output-dir", required=True, help="Directory for output artifacts."
+        "--output-dir",
+        default=".",
+        help="Directory for output artifacts. Default: %(default)s",
     )
     parser.add_argument(
         "--formats",
@@ -35,8 +37,8 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--title-suffix",
-        default="（同步块展开导出）",
-        help="Suffix appended to the temporary expanded doc title.",
+        default="",
+        help="Suffix appended to the temporary expanded doc title. Default: empty.",
     )
     parser.add_argument(
         "--file-stem",
@@ -46,7 +48,7 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--keep-temp-doc",
         action="store_true",
-        help="Keep the temporary expanded doc instead of deleting it after the Markdown export step.",
+        help="Keep the temporary expanded doc instead of deleting it after the Markdown export step. Default: false.",
     )
     parser.add_argument(
         "--theme",
