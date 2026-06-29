@@ -33,7 +33,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
-          enable-cache: true
+          enable-cache: false
 
       - name: Sync dev dependencies
         run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
