@@ -10,6 +10,7 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
+from .callout_markdown import normalize_markdown_callouts_file
 from .markdown_runtime import render_markdown_body
 from .pdf_runtime import render_html_to_pdf
 
@@ -157,6 +158,55 @@ blockquote {
   padding: 0.1em 1em;
   color: var(--muted, #59636e);
   border-left: 4px solid var(--border, #d0d7de);
+}
+
+.callout {
+  margin: 0 0 1em;
+  padding: 0.9em 1em;
+  border-left: 4px solid var(--callout-note-border, var(--border, #d0d7de));
+  border-radius: 10px;
+  background: var(--callout-note-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-note-fg, var(--text, #1f2328));
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.callout > :first-child {
+  margin-top: 0;
+}
+
+.callout > :last-child {
+  margin-bottom: 0;
+}
+
+.callout--note {
+  border-left-color: var(--callout-note-border, var(--border, #d0d7de));
+  background: var(--callout-note-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-note-fg, var(--text, #1f2328));
+}
+
+.callout--tip {
+  border-left-color: var(--callout-tip-border, var(--accent, #0969da));
+  background: var(--callout-tip-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-tip-fg, var(--text, #1f2328));
+}
+
+.callout--important {
+  border-left-color: var(--callout-important-border, var(--accent, #0969da));
+  background: var(--callout-important-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-important-fg, var(--text, #1f2328));
+}
+
+.callout--warning {
+  border-left-color: var(--callout-warning-border, var(--accent, #0969da));
+  background: var(--callout-warning-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-warning-fg, var(--text, #1f2328));
+}
+
+.callout--caution {
+  border-left-color: var(--callout-caution-border, var(--accent, #0969da));
+  background: var(--callout-caution-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-caution-fg, var(--text, #1f2328));
 }
 
 hr {
@@ -520,6 +570,7 @@ def export_document(
         localized_image_count = localize_markdown_images(
             raw_markdown_path, localized_markdown_path, assets_dir
         )
+        normalize_markdown_callouts_file(localized_markdown_path)
 
         if "markdown" in formats:
             outputs["markdown"] = str(localized_markdown_path)
