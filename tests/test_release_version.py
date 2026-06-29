@@ -53,3 +53,13 @@ def test_validate_release_versions_rejects_init_drift(tmp_path: Path):
 
     with pytest.raises(ValueError, match="version mismatch"):
         validate_release_versions("v0.1.0", pyproject, module_init)
+
+
+def test_validate_release_versions_requires_explicit_pyproject_version(tmp_path: Path):
+    pyproject = tmp_path / "pyproject.toml"
+    module_init = tmp_path / "__init__.py"
+    pyproject.write_text('[project]\ndynamic = ["version"]\n', encoding="utf-8")
+    module_init.write_text('"""demo"""\n\n__version__ = "0.1.0"\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"could not find \[project\]\.version"):
+        validate_release_versions("v0.1.0", pyproject, module_init)

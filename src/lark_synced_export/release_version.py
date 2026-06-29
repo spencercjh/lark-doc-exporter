@@ -26,7 +26,15 @@ def normalize_release_tag(tag: str) -> str:
 
 def read_pyproject_version(pyproject_path: Path) -> str:
     payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-    return payload["project"]["version"]
+    project = payload.get("project")
+    if not isinstance(project, dict):
+        raise ValueError(f"could not find [project].version in {pyproject_path}")
+
+    version = project.get("version")
+    if not isinstance(version, str) or not version:
+        raise ValueError(f"could not find [project].version in {pyproject_path}")
+
+    return version
 
 
 def read_init_version(init_path: Path) -> str:
