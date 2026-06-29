@@ -164,9 +164,15 @@ Before a release:
 The publish workflow must fail if:
 
 - the git tag does not start with `v`
-- the tag version does not exactly match the package version
+- the git tag (without the `v` prefix) does not exactly match
+  `pyproject.toml`'s `project.version`
+- the git tag (without the `v` prefix) does not exactly match
+  `src/lark_synced_export/__init__.py`'s `__version__`
+- `pyproject.toml`'s `project.version` and
+  `src/lark_synced_export/__init__.py`'s `__version__` differ
 
-The workflow should treat version mismatch as a hard stop before build/publish.
+The workflow should treat any mismatch in that three-way equality check as a
+hard stop before build/publish.
 
 ### 5. README Public Install Path
 
@@ -250,7 +256,8 @@ supports the intended package-name installation path.
 
 The publish workflow itself must validate:
 
-- tag/package version equality
+- three-way version equality between the git tag, `pyproject.toml`, and
+  `src/lark_synced_export/__init__.py`
 - ordinary repository checks through `make ci`
 - a fresh wheel build from the tagged commit
 - a minimal console-script smoke check through `lark-doc-exporter --help`
@@ -263,7 +270,8 @@ Only after those checks pass should PyPI upload occur.
 - Users can run the released tool one-off with `uvx lark-doc-exporter ...`.
 - PyPI publication uses Trusted Publishing instead of a long-lived PyPI token.
 - The release workflow only runs on version tags.
-- The release workflow fails hard when the git tag and package version differ.
+- The release workflow fails hard unless the git tag,
+  `pyproject.toml` version, and `__init__.__version__` are all identical.
 - The release workflow validates a fresh wheel before upload.
 - The README’s public path is package-name installation, not Git URL
   installation.
