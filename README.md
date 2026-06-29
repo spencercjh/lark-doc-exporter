@@ -20,7 +20,8 @@ the tool environment automatically.
 ## Quick Start
 
 ```bash
-uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter doctor
+uv tool install lark-doc-exporter
+lark-doc-exporter doctor
 ```
 
 If Chromium is missing, prepare it once:
@@ -29,10 +30,22 @@ If Chromium is missing, prepare it once:
 uvx --from playwright playwright install chromium
 ```
 
-Then run an export without cloning the repo:
+Then run an export:
 
 ```bash
-uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter \
+lark-doc-exporter \
+  --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
+  --output-dir exports/demo \
+  --formats markdown,pdf \
+  --theme default
+```
+
+## One-off Run
+
+If you do not want a persistent tool install:
+
+```bash
+uvx lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
   --output-dir exports/demo \
   --formats markdown,pdf \
@@ -41,24 +54,11 @@ uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter
 
 ## Install As A Tool
 
-For repeated use, install the command once:
+After installing the released package, companion-skill operations stay the same:
 
 ```bash
-uv tool install git+https://github.com/spencercjh/lark-doc-exporter
-```
-
-Then use it directly:
-
-```bash
-lark-doc-exporter doctor
 lark-doc-exporter skill install --dry-run
 lark-doc-exporter skill install
-
-lark-doc-exporter \
-  --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
-  --output-dir exports/demo \
-  --formats markdown,pdf \
-  --theme default
 ```
 
 Auto mode installs the companion skill into every detected supported host:
@@ -98,9 +98,13 @@ lark-doc-exporter \
   --css /path/to/your-company-print.css
 ```
 
-## Development
+## Development / Unreleased
+
+Use the Git URL or a local checkout only when you intentionally need unreleased code:
 
 ```bash
+uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter doctor
+
 git clone https://github.com/spencercjh/lark-doc-exporter
 cd lark-doc-exporter
 uv sync --python 3.14 --group dev
