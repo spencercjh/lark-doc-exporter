@@ -8,3 +8,7 @@ dist/
 build/
 exports/
 tmp/
+.idea
+*.egg-info
+.claude
+.agents
