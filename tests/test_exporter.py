@@ -228,7 +228,7 @@ def test_export_document_normalizes_user_mentions_before_render(
     stage_dir.mkdir()
     raw_markdown_path = stage_dir / "demo.raw.md"
     raw_markdown_path.write_text(
-        'Owner：<cite type="user" user-id="ou_b2c4" user-name="蔡佳昊(spencer)"></cite>\n',
+        'Owner：<cite type="user" user-id="ou_example" user-name="Example User"></cite>\n',
         encoding="utf-8",
     )
     theme_css = tmp_path / "theme.css"
@@ -304,7 +304,7 @@ def test_export_document_normalizes_user_mentions_before_render(
         override_css=None,
     )
 
-    normalized = "Owner：蔡佳昊(spencer)"
+    normalized = "Owner：Example User"
     markdown_output = Path(result["outputs"]["markdown"]).read_text(encoding="utf-8")
 
     assert markdown_output == f"{normalized}\n"
