@@ -7,10 +7,24 @@
   --surface-subtle: #f6f8fa;
   --code-bg: #f6f8fa;
   --accent: #0969da;
+  --callout-note-bg: #f6f8fa;
+  --callout-note-border: #8c959f;
+  --callout-note-fg: #1f2328;
+  --callout-tip-bg: #ddf4ff;
+  --callout-tip-border: #218bff;
+  --callout-tip-fg: #0a3069;
+  --callout-important-bg: #fbefff;
+  --callout-important-border: #bf4bff;
+  --callout-important-fg: #5a1e7a;
+  --callout-warning-bg: #fff8c5;
+  --callout-warning-border: #d4a72c;
+  --callout-warning-fg: #4d2d00;
+  --callout-caution-bg: #ffebe9;
+  --callout-caution-border: #cf222e;
+  --callout-caution-fg: #82071e;
 }
 
 h1,
 h2 {
   letter-spacing: 0;
 }
-

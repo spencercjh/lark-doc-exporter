@@ -160,6 +160,55 @@ blockquote {
   border-left: 4px solid var(--border, #d0d7de);
 }
 
+.callout {
+  margin: 0 0 1em;
+  padding: 0.9em 1em;
+  border-left: 4px solid var(--callout-note-border, var(--border, #d0d7de));
+  border-radius: 10px;
+  background: var(--callout-note-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-note-fg, var(--text, #1f2328));
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.callout > :first-child {
+  margin-top: 0;
+}
+
+.callout > :last-child {
+  margin-bottom: 0;
+}
+
+.callout--note {
+  border-left-color: var(--callout-note-border, var(--border, #d0d7de));
+  background: var(--callout-note-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-note-fg, var(--text, #1f2328));
+}
+
+.callout--tip {
+  border-left-color: var(--callout-tip-border, var(--accent, #0969da));
+  background: var(--callout-tip-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-tip-fg, var(--text, #1f2328));
+}
+
+.callout--important {
+  border-left-color: var(--callout-important-border, var(--accent, #0969da));
+  background: var(--callout-important-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-important-fg, var(--text, #1f2328));
+}
+
+.callout--warning {
+  border-left-color: var(--callout-warning-border, var(--accent, #0969da));
+  background: var(--callout-warning-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-warning-fg, var(--text, #1f2328));
+}
+
+.callout--caution {
+  border-left-color: var(--callout-caution-border, var(--accent, #0969da));
+  background: var(--callout-caution-bg, var(--surface-subtle, #f6f8fa));
+  color: var(--callout-caution-fg, var(--text, #1f2328));
+}
+
 hr {
   border: 0;
   border-top: 1px solid var(--border, #d0d7de);

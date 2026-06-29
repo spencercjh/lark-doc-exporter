@@ -59,3 +59,37 @@ def test_normalize_table_inline_code_skips_fenced_code_blocks():
     text = "```text\n| `a\\|b` |\n```\n"
 
     assert _normalize_table_inline_code(text) == text
+
+
+def test_render_markdown_body_upgrades_callout_blockquote(tmp_path: Path):
+    markdown_path = tmp_path / "demo.md"
+    body_html = tmp_path / "body.html"
+    markdown_path.write_text(
+        "> [!TIP]\n"
+        "> 💡 **核心结论：** Hosted.ai 与 HAMi 的关系，更准确地说是……\n"
+        ">\n"
+        "> 第二段正文\n",
+        encoding="utf-8",
+    )
+
+    render_markdown_body(markdown_path, body_html)
+
+    html = body_html.read_text(encoding="utf-8")
+    assert 'class="callout callout--tip"' in html
+    assert "[!TIP]" not in html
+    assert "💡" in html
+    assert "第二段正文" in html
+
+
+def test_render_markdown_body_keeps_plain_blockquote_as_plain_blockquote(
+    tmp_path: Path,
+):
+    markdown_path = tmp_path / "demo.md"
+    body_html = tmp_path / "body.html"
+    markdown_path.write_text("> plain quote\n", encoding="utf-8")
+
+    render_markdown_body(markdown_path, body_html)
+
+    html = body_html.read_text(encoding="utf-8")
+    assert "<blockquote>" in html
+    assert 'class="callout' not in html

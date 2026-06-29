@@ -3,6 +3,7 @@ from pathlib import Path
 from lark_synced_export.exporter import (
     build_render_html,
     export_document,
+    resolve_theme_css,
     slugify_filename,
 )
 
@@ -27,6 +28,27 @@ def test_build_render_html_includes_theme_and_override(tmp_path: Path):
     assert "--accent: #123456" in html
     assert "color: #abcdef" in html
     assert "<h1>Demo</h1>" in html
+
+
+def test_build_render_html_includes_packaged_callout_styles(tmp_path: Path):
+    body_html = tmp_path / "body.html"
+    render_html = tmp_path / "render.html"
+
+    body_html.write_text(
+        '<div class="callout callout--tip">demo</div>', encoding="utf-8"
+    )
+
+    build_render_html(
+        body_html,
+        render_html,
+        "Demo",
+        resolve_theme_css("default"),
+        None,
+    )
+
+    html = render_html.read_text(encoding="utf-8")
+    assert ".callout--tip" in html
+    assert "--callout-tip-bg" in html
 
 
 def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Path):
@@ -111,14 +133,12 @@ def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Pat
     assert result["outputs"]["pdf"].endswith("demo.pdf")
 
 
-def test_export_document_normalizes_callouts_before_render(
-    monkeypatch, tmp_path: Path
-):
+def test_export_document_normalizes_callouts_before_render(monkeypatch, tmp_path: Path):
     stage_dir = tmp_path / "stage"
     stage_dir.mkdir()
     raw_markdown_path = stage_dir / "demo.raw.md"
     raw_markdown_path.write_text(
-        "<callout emoji=\"💡\">\nBody\n</callout>\n",
+        '<callout emoji="💡">\nBody\n</callout>\n',
         encoding="utf-8",
     )
     theme_css = tmp_path / "theme.css"
