@@ -4,6 +4,7 @@ from lark_synced_export.native_pdf_footer import (
     FooterDetection,
     NativePdfPostprocessResult,
     PdfWord,
+    _read_last_page_words,
     detect_footer,
     normalize_footer_text,
     postprocess_native_pdf,
@@ -166,6 +167,7 @@ def test_postprocess_native_pdf_returns_detection_warning(monkeypatch, tmp_path:
     final_pdf = tmp_path / "demo.pdf"
     preserved_raw_pdf = tmp_path / "preserved" / "demo.native-raw.pdf"
     raw_pdf.write_bytes(b"%PDF-1.4\nraw\n")
+    final_pdf.write_bytes(b"%PDF-1.4\nstale\n")
 
     monkeypatch.setattr(
         "lark_synced_export.native_pdf_footer._read_last_page_words",
@@ -191,6 +193,7 @@ def test_postprocess_native_pdf_returns_unsafe_geometry_warning(
     final_pdf = tmp_path / "demo.pdf"
     preserved_raw_pdf = tmp_path / "preserved" / "demo.native-raw.pdf"
     raw_pdf.write_bytes(b"%PDF-1.4\nraw\n")
+    final_pdf.write_bytes(b"%PDF-1.4\nstale\n")
 
     monkeypatch.setattr(
         "lark_synced_export.native_pdf_footer._read_last_page_words",
@@ -285,7 +288,7 @@ def test_postprocess_native_pdf_redacts_footer_when_geometry_is_safe(
     )
     monkeypatch.setattr(
         "lark_synced_export.native_pdf_footer._verify_footer_removed",
-        lambda _path: True,
+        lambda _path, _bbox: True,
     )
 
     result = postprocess_native_pdf(raw_pdf, final_pdf, preserved_raw_pdf)
@@ -329,10 +332,82 @@ def test_postprocess_native_pdf_uses_padded_mask_bbox(monkeypatch, tmp_path: Pat
     )
     monkeypatch.setattr(
         "lark_synced_export.native_pdf_footer._verify_footer_removed",
-        lambda _path: True,
+        lambda _path, _bbox: True,
     )
 
     result = postprocess_native_pdf(raw_pdf, final_pdf, preserved_raw_pdf)
 
     assert result.status == "removed"
     assert capture["bbox"] == (18.0, 788.0, 264.0, 810.0)
+
+
+def test_postprocess_native_pdf_verifies_only_the_redacted_region(
+    monkeypatch, tmp_path: Path
+):
+    raw_pdf = tmp_path / "demo.native-raw.pdf"
+    final_pdf = tmp_path / "demo.pdf"
+    preserved_raw_pdf = tmp_path / "preserved" / "demo.native-raw.pdf"
+    raw_pdf.write_bytes(b"%PDF-1.4\nraw\n")
+
+    body_copy = [
+        PdfWord("(注：内容由", 24, 193.26, 116, 207.26),
+        PdfWord("AI", 120, 193.26, 138, 207.26),
+        PdfWord("生成，请谨慎参考）", 142, 193.26, 258, 207.26),
+    ]
+    footer_copy = [
+        PdfWord("(注：内容由", 24, 792, 116, 806),
+        PdfWord("AI", 120, 792, 138, 806),
+        PdfWord("生成，请谨慎参考）", 142, 792, 258, 806),
+    ]
+
+    def fake_read(path: Path):
+        if path == raw_pdf:
+            return body_copy + footer_copy, 595.0, 842.0
+        return body_copy, 595.0, 842.0
+
+    monkeypatch.setattr(
+        "lark_synced_export.native_pdf_footer._read_last_page_words", fake_read
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.native_pdf_footer._apply_footer_redaction",
+        lambda _raw, dst, _bbox: dst.write_bytes(b"%PDF-1.4\nclean\n"),
+    )
+
+    result = postprocess_native_pdf(raw_pdf, final_pdf, preserved_raw_pdf)
+
+    assert result.status == "removed"
+    assert result.final_pdf_path == str(final_pdf)
+    assert result.raw_pdf_path is None
+
+
+def test_read_last_page_words_requests_sorted_word_order(monkeypatch, tmp_path: Path):
+    pdf_path = tmp_path / "demo.pdf"
+    capture: dict[str, object] = {}
+
+    class FakePage:
+        rect = type("Rect", (), {"width": 595.0, "height": 842.0})()
+
+        def get_text(self, mode: str, sort: bool = False):
+            capture["mode"] = mode
+            capture["sort"] = sort
+            return [(20, 100, 40, 112, "正文")]
+
+    class FakeDocument:
+        def __getitem__(self, index: int):
+            assert index == -1
+            return FakePage()
+
+        def close(self):
+            capture["closed"] = True
+
+    monkeypatch.setattr(
+        "lark_synced_export.native_pdf_footer.fitz.open",
+        lambda _path: FakeDocument(),
+    )
+
+    words, page_width, page_height = _read_last_page_words(pdf_path)
+
+    assert capture == {"mode": "words", "sort": True, "closed": True}
+    assert words == [PdfWord("正文", 20.0, 100.0, 40.0, 112.0)]
+    assert page_width == 595.0
+    assert page_height == 842.0

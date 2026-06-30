@@ -547,6 +547,8 @@ def export_document(
     override_css: Path | None,
     pdf_mode: str = "rendered",
 ) -> dict:
+    if pdf_mode not in {"rendered", "native"}:
+        raise ValueError(f"unsupported pdf_mode: {pdf_mode}")
     if override_css and not override_css.is_file():
         raise FileNotFoundError(f"override CSS not found: {override_css}")
 

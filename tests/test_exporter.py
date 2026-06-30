@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from lark_synced_export.exporter import (
     build_render_html,
     export_document,
@@ -132,6 +134,21 @@ def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Pat
 
     assert "dir" not in capture["kwargs"]
     assert result["outputs"]["pdf"].endswith("demo.pdf")
+
+
+def test_export_document_rejects_unsupported_pdf_mode(tmp_path: Path):
+    with pytest.raises(ValueError, match="unsupported pdf_mode: foo"):
+        export_document(
+            doc_ref="demo",
+            output_dir=tmp_path / "out",
+            formats=["pdf"],
+            title_suffix="",
+            file_stem="demo",
+            keep_temp_doc=False,
+            theme_name="default",
+            override_css=None,
+            pdf_mode="foo",
+        )
 
 
 def test_export_document_normalizes_callouts_before_render(monkeypatch, tmp_path: Path):

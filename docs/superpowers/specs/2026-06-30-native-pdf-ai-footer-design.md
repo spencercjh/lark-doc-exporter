@@ -103,9 +103,9 @@ Behavior contract:
 - `native`: use the native PDF path
   - `doc -> temp doc -> native PDF export -> AI footer post-process`
 
-The new mode affects only PDF:
+The new mode affects only PDF artifacts:
 
-- `--formats markdown`: ignore `--pdf-mode`
+- `--formats markdown`: the export output still ignores `--pdf-mode`
 - `--formats pdf --pdf-mode native`: produce native PDF with footer handling
 - `--formats markdown,pdf --pdf-mode native`:
   - markdown still uses the current markdown pipeline
@@ -121,6 +121,9 @@ Theme/CSS contract:
   - default values may pass through silently
   - explicitly passing a non-default `--theme` or `--css` must raise a CLI
     error instead of being silently ignored
+  - this validation is global CLI behavior, even if the requested `--formats`
+    set does not include PDF, so users do not accidentally rely on native mode
+    while also passing rendered-only styling flags
 
 JSON contract:
 

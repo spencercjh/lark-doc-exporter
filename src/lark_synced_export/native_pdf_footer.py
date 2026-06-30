@@ -242,7 +242,7 @@ def _read_last_page_words(pdf_path: Path) -> tuple[list[PdfWord], float, float]:
                 x1=float(item[2]),
                 y1=float(item[3]),
             )
-            for item in page.get_text("words")
+            for item in page.get_text("words", sort=True)
         ]
         return words, float(page.rect.width), float(page.rect.height)
     finally:
@@ -276,9 +276,15 @@ def _apply_footer_redaction(
         document.close()
 
 
-def _verify_footer_removed(pdf_path: Path) -> bool:
-    words, page_width, page_height = _read_last_page_words(pdf_path)
-    return detect_footer(words, page_width, page_height).status == "not_found"
+def _verify_footer_removed(
+    pdf_path: Path,
+    redaction_bbox: tuple[float, float, float, float],
+) -> bool:
+    words, _page_width, _page_height = _read_last_page_words(pdf_path)
+    return not any(
+        _rectangles_overlap(redaction_bbox, (word.x0, word.y0, word.x1, word.y1))
+        for word in words
+    )
 
 
 def _cleanup_failed_output(final_pdf: Path) -> None:
@@ -295,6 +301,7 @@ def postprocess_native_pdf(
         words, page_width, page_height = _read_last_page_words(raw_pdf)
         detection = detect_footer(words, page_width, page_height)
     except Exception:
+        _cleanup_failed_output(final_pdf)
         preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
         return NativePdfPostprocessResult(
             status="detection_failed",
@@ -313,6 +320,7 @@ def postprocess_native_pdf(
         )
 
     if detection.status != "matched" or detection.bbox is None:
+        _cleanup_failed_output(final_pdf)
         preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
         return NativePdfPostprocessResult(
             status="unsafe_geometry",
@@ -321,9 +329,11 @@ def postprocess_native_pdf(
             warning=_build_warning("unsafe_geometry", preserved),
         )
 
+    redaction_bbox = _expand_bbox(detection.bbox)
+
     try:
-        _apply_footer_redaction(raw_pdf, final_pdf, _expand_bbox(detection.bbox))
-        if not _verify_footer_removed(final_pdf):
+        _apply_footer_redaction(raw_pdf, final_pdf, redaction_bbox)
+        if not _verify_footer_removed(final_pdf, redaction_bbox):
             _cleanup_failed_output(final_pdf)
             preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
             return NativePdfPostprocessResult(

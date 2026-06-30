@@ -11,6 +11,7 @@ Export Feishu/Lark docs with synced blocks expanded into:
 - `lark-cli` configured with a user session
 - Python 3.14
 - For `--pdf-mode rendered`: a working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
+- For `--pdf-mode native`: PyMuPDF available in the runtime environment (bundled with this package dependency as `pymupdf`)
 
 If you use `uvx` / `uv tool install`, `uv` can provision the required Python for
 the tool environment automatically.
