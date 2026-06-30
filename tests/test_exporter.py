@@ -5,6 +5,7 @@ import pytest
 from lark_synced_export.exporter import (
     build_render_html,
     export_document,
+    normalize_xml_for_create,
     resolve_theme_css,
     slugify_filename,
 )
@@ -52,6 +53,25 @@ def test_build_render_html_includes_packaged_callout_styles(tmp_path: Path):
     html = render_html.read_text(encoding="utf-8")
     assert ".callout--tip" in html
     assert "--callout-tip-bg" in html
+
+
+def test_normalize_xml_for_create_drops_fetch_only_img_attrs():
+    xml = (
+        '<title>Demo</title>'
+        '<img width="1260" height="946" caption="Figure 1" name="test.jpg" '
+        'href="https://example.com/auth" alt="demo" mime="image/jpeg" '
+        'scale="1.000000" src="NYRpb4o9Wo5ISexpegvcMRZXnwg" token="imgtok"/>'
+    )
+
+    normalized, title = normalize_xml_for_create(xml, "")
+
+    assert title == "Demo"
+    assert (
+        '<img width="1260" height="946" caption="Figure 1" name="test.jpg" '
+        'href="https://example.com/auth"/>'
+    ) in normalized
+    for leaked_attr in (' alt="', ' mime="', ' scale="', ' src="', ' token="'):
+        assert leaked_attr not in normalized
 
 
 def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Path):

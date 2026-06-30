@@ -325,14 +325,16 @@ def normalize_img_tags(xml_text: str) -> str:
     def repl(match: re.Match[str]) -> str:
         attrs = parse_attrs(match.group(1))
         href = attrs.pop("url", None) or attrs.pop("href", None)
-        attrs.pop("token", None)
+        normalized: dict[str, str] = {}
+        for key in ("width", "height", "caption", "name"):
+            if key in attrs:
+                normalized[key] = attrs[key]
         if href:
-            attrs["href"] = href
+            normalized["href"] = href
         ordered = []
         for key in ("width", "height", "caption", "name", "href"):
-            if key in attrs:
-                ordered.append(render_attr(key, attrs.pop(key)))
-        ordered.extend(render_attr(k, v) for k, v in sorted(attrs.items()))
+            if key in normalized:
+                ordered.append(render_attr(key, normalized[key]))
         return f"<img{''.join(ordered)}/>"
 
     return IMG_TAG_RE.sub(repl, xml_text)
