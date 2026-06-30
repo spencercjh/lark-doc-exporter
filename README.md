@@ -3,16 +3,15 @@
 Export Feishu/Lark docs with synced blocks expanded into:
 
 - Markdown with localized images
-- Themeable locally rendered PDF
-
-The PDF path deliberately avoids the Feishu `docs_ai -> export pdf` route so the
-final file does not include the AI disclaimer injected by that server-side path.
+- Themeable locally rendered PDF by default
+- Optional native Feishu PDF mode with AI-footer post-processing
 
 ## Requirements
 
 - `lark-cli` configured with a user session
 - Python 3.14
-- A working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
+- For `--pdf-mode rendered`: a working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
+- For `--pdf-mode native`: PyMuPDF available in the runtime environment (bundled with this package dependency as `pymupdf`)
 
 If you use `uvx` / `uv tool install`, `uv` can provision the required Python for
 the tool environment automatically.
@@ -24,7 +23,7 @@ uv tool install lark-doc-exporter
 lark-doc-exporter doctor
 ```
 
-If Chromium is missing, prepare it once:
+If you want rendered PDF output and Chromium is missing, prepare it once:
 
 ```bash
 uvx --from playwright playwright install chromium
@@ -70,15 +69,34 @@ Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `
 
 ## Chromium Setup
 
-- `doctor` reports whether both `lark-cli` and Chromium are ready.
+- `doctor` reports whether `lark-cli` is ready and whether Chromium is available for rendered PDF mode.
 - If you already have a browser binary, you can point the exporter at it with `LARK_DOC_EXPORTER_CHROMIUM=/path/to/chromium`.
 - If `LARK_DOC_EXPORTER_CHROMIUM` is set to a missing path, the command fails explicitly instead of silently falling back.
 
 ## Output
 
 - `markdown` keeps the localized Markdown file in the output directory.
-- `pdf` is rendered locally from the localized Markdown via HTML/CSS + Chromium.
+- `pdf` uses either local HTML/CSS + Chromium (`--pdf-mode rendered`) or Feishu native PDF plus footer handling (`--pdf-mode native`).
 - `images/` contains same-run localized image assets used by the Markdown/PDF.
+
+### Native PDF Mode
+
+If you want Feishu native PDF layout instead of the local HTML/Chromium path:
+
+```bash
+lark-doc-exporter \
+  --doc "https://dynamia-ai.feishu.cn/wiki/BVXXwgzbZivjQZkr7jmcsGcinGh" \
+  --output-dir exports/native \
+  --formats pdf \
+  --pdf-mode native
+```
+
+Native mode rules:
+
+- only the PDF branch changes; markdown stays on the current markdown pipeline
+- explicit non-default `--theme` / `--css` are rejected
+- success states are `removed` and `not_found`
+- failure states emit warnings and keep `<stem>.native-raw.pdf` for inspection
 
 ## Themes
 

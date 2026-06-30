@@ -290,7 +290,10 @@ def test_run_main_export_route_still_uses_default_flags(
 
     def fake_export_document(**kwargs):
         calls.update(kwargs)
-        return {"outputs": {"markdown": str(tmp_path / "demo.md")}}
+        return {
+            "ok": True,
+            "outputs": {"markdown": str(tmp_path / "demo.md")},
+        }
 
     monkeypatch.setattr("lark_synced_export.cli.export_document", fake_export_document)
 
