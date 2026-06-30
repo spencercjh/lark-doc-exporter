@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import re
+import shutil
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Sequence
+
+import fitz
 
 
 FOOTER_VARIANTS = (
@@ -38,6 +42,20 @@ class FooterDetection:
     normalized_text: str | None
     word_indexes: tuple[int, ...]
     bbox: tuple[float, float, float, float] | None
+
+
+@dataclass(frozen=True)
+class NativePdfPostprocessResult:
+    status: Literal[
+        "removed",
+        "not_found",
+        "detection_failed",
+        "unsafe_geometry",
+        "mask_failed",
+    ]
+    final_pdf_path: str | None
+    raw_pdf_path: str | None
+    warning: str | None
 
 
 def normalize_footer_text(text: str) -> str:
@@ -151,3 +169,130 @@ def detect_footer(
             return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)
 
     return FooterDetection("matched", normalized_text, word_indexes, bbox)
+
+
+def _build_warning(status: str, raw_pdf: Path) -> str:
+    return (
+        f"native PDF footer post-process failed ({status}); "
+        f"raw native PDF kept at {raw_pdf}"
+    )
+
+
+def _read_last_page_words(pdf_path: Path) -> tuple[list[PdfWord], float, float]:
+    document = fitz.open(pdf_path)
+    try:
+        page = document[-1]
+        words = [
+            PdfWord(
+                text=str(item[4]),
+                x0=float(item[0]),
+                y0=float(item[1]),
+                x1=float(item[2]),
+                y1=float(item[3]),
+            )
+            for item in page.get_text("words")
+        ]
+        return words, float(page.rect.width), float(page.rect.height)
+    finally:
+        document.close()
+
+
+def _copy_raw_pdf(raw_pdf: Path, final_pdf: Path) -> None:
+    final_pdf.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(raw_pdf, final_pdf)
+
+
+def _preserve_raw_pdf(raw_pdf: Path, preserved_raw_pdf: Path) -> Path:
+    preserved_raw_pdf.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(raw_pdf, preserved_raw_pdf)
+    return preserved_raw_pdf
+
+
+def _apply_footer_redaction(
+    raw_pdf: Path,
+    final_pdf: Path,
+    bbox: tuple[float, float, float, float],
+) -> None:
+    final_pdf.parent.mkdir(parents=True, exist_ok=True)
+    document = fitz.open(raw_pdf)
+    try:
+        page = document[-1]
+        page.add_redact_annot(fitz.Rect(*bbox), fill=(1, 1, 1))
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+        document.save(final_pdf)
+    finally:
+        document.close()
+
+
+def _verify_footer_removed(pdf_path: Path) -> bool:
+    words, page_width, page_height = _read_last_page_words(pdf_path)
+    return detect_footer(words, page_width, page_height).status == "not_found"
+
+
+def _cleanup_failed_output(final_pdf: Path) -> None:
+    if final_pdf.exists():
+        final_pdf.unlink()
+
+
+def postprocess_native_pdf(
+    raw_pdf: Path,
+    final_pdf: Path,
+    preserved_raw_pdf: Path,
+) -> NativePdfPostprocessResult:
+    try:
+        words, page_width, page_height = _read_last_page_words(raw_pdf)
+        detection = detect_footer(words, page_width, page_height)
+    except Exception:
+        preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
+        return NativePdfPostprocessResult(
+            status="detection_failed",
+            final_pdf_path=None,
+            raw_pdf_path=str(preserved),
+            warning=_build_warning("detection_failed", preserved),
+        )
+
+    if detection.status == "not_found":
+        _copy_raw_pdf(raw_pdf, final_pdf)
+        return NativePdfPostprocessResult(
+            status="not_found",
+            final_pdf_path=str(final_pdf),
+            raw_pdf_path=None,
+            warning=None,
+        )
+
+    if detection.status != "matched" or detection.bbox is None:
+        preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
+        return NativePdfPostprocessResult(
+            status="unsafe_geometry",
+            final_pdf_path=None,
+            raw_pdf_path=str(preserved),
+            warning=_build_warning("unsafe_geometry", preserved),
+        )
+
+    try:
+        _apply_footer_redaction(raw_pdf, final_pdf, detection.bbox)
+        if not _verify_footer_removed(final_pdf):
+            _cleanup_failed_output(final_pdf)
+            preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
+            return NativePdfPostprocessResult(
+                status="mask_failed",
+                final_pdf_path=None,
+                raw_pdf_path=str(preserved),
+                warning=_build_warning("mask_failed", preserved),
+            )
+    except Exception:
+        _cleanup_failed_output(final_pdf)
+        preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)
+        return NativePdfPostprocessResult(
+            status="mask_failed",
+            final_pdf_path=None,
+            raw_pdf_path=str(preserved),
+            warning=_build_warning("mask_failed", preserved),
+        )
+
+    return NativePdfPostprocessResult(
+        status="removed",
+        final_pdf_path=str(final_pdf),
+        raw_pdf_path=None,
+        warning=None,
+    )
