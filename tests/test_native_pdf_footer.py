@@ -33,6 +33,23 @@ def test_detect_footer_matches_single_bottom_cluster():
     )
 
 
+def test_detect_footer_matches_single_bottom_cluster_with_tiny_word_overlap():
+    words = [
+        PdfWord("(注：内容由", 24, 792, 116, 806),
+        PdfWord("AI", 115.5, 792, 138, 806),
+        PdfWord("生成，请谨慎参考）", 142, 792, 258, 806),
+    ]
+
+    detection = detect_footer(words, page_width=595.0, page_height=842.0)
+
+    assert detection == FooterDetection(
+        status="matched",
+        normalized_text="(注:内容由AI生成,请谨慎参考)",
+        word_indexes=(0, 1, 2),
+        bbox=(24.0, 792.0, 258.0, 806.0),
+    )
+
+
 def test_detect_footer_matches_footer_anywhere_on_last_page():
     words = [
         PdfWord("(注：内容由", 24, 193.26, 116, 207.26),
@@ -281,3 +298,41 @@ def test_postprocess_native_pdf_redacts_footer_when_geometry_is_safe(
     )
     assert final_pdf.exists()
     assert not preserved_raw_pdf.exists()
+
+
+def test_postprocess_native_pdf_uses_padded_mask_bbox(monkeypatch, tmp_path: Path):
+    raw_pdf = tmp_path / "demo.native-raw.pdf"
+    final_pdf = tmp_path / "demo.pdf"
+    preserved_raw_pdf = tmp_path / "preserved" / "demo.native-raw.pdf"
+    raw_pdf.write_bytes(b"%PDF-1.4\nraw\n")
+    capture: dict[str, tuple[float, float, float, float]] = {}
+
+    monkeypatch.setattr(
+        "lark_synced_export.native_pdf_footer._read_last_page_words",
+        lambda _path: (
+            [
+                PdfWord("(注：内容由", 24, 792, 116, 806),
+                PdfWord("AI", 120, 792, 138, 806),
+                PdfWord("生成，请谨慎参考）", 142, 792, 258, 806),
+            ],
+            595.0,
+            842.0,
+        ),
+    )
+
+    def fake_apply(_raw: Path, dst: Path, bbox: tuple[float, float, float, float]):
+        capture["bbox"] = bbox
+        dst.write_bytes(b"%PDF-1.4\nclean\n")
+
+    monkeypatch.setattr(
+        "lark_synced_export.native_pdf_footer._apply_footer_redaction", fake_apply
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.native_pdf_footer._verify_footer_removed",
+        lambda _path: True,
+    )
+
+    result = postprocess_native_pdf(raw_pdf, final_pdf, preserved_raw_pdf)
+
+    assert result.status == "removed"
+    assert capture["bbox"] == (18.0, 788.0, 264.0, 810.0)

@@ -11,6 +11,9 @@ import fitz
 
 
 FAILURE_STATUSES = {"detection_failed", "unsafe_geometry", "mask_failed"}
+SAME_LINE_OVERLAP_TOLERANCE = 1.0
+MASK_PADDING_X = 6.0
+MASK_PADDING_Y = 4.0
 FOOTER_VARIANTS = (
     "注:内容由AI生成,请谨慎参考",
     "(注:内容由AI生成,请谨慎参考)",
@@ -112,6 +115,18 @@ def _cluster_text(cluster: Sequence[tuple[int, PdfWord]]) -> str:
     return normalize_footer_text("".join(word.text for _, word in cluster))
 
 
+def _expand_bbox(
+    bbox: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = bbox
+    return (
+        x0 - MASK_PADDING_X,
+        y0 - MASK_PADDING_Y,
+        x1 + MASK_PADDING_X,
+        y1 + MASK_PADDING_Y,
+    )
+
+
 def _build_clusters(
     indexed_words: Sequence[tuple[int, PdfWord]],
 ) -> list[list[tuple[int, PdfWord]]]:
@@ -125,7 +140,7 @@ def _build_clusters(
         _, word = item
         same_line = _words_share_line(previous_word, word)
         gap = word.x0 - previous_word.x1
-        small_gap = 0.0 <= gap <= 12.0
+        small_gap = -SAME_LINE_OVERLAP_TOLERANCE <= gap <= 12.0
         if same_line and small_gap:
             current.append(item)
         else:
@@ -196,7 +211,7 @@ def detect_footer(
     if (x1 - x0) > page_width * 0.80:
         return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)
 
-    expanded = (x0 - 6.0, y0 - 4.0, x1 + 6.0, y1 + 4.0)
+    expanded = _expand_bbox(bbox)
     for index, word in enumerate(words):
         if index in word_indexes:
             continue
@@ -307,7 +322,7 @@ def postprocess_native_pdf(
         )
 
     try:
-        _apply_footer_redaction(raw_pdf, final_pdf, detection.bbox)
+        _apply_footer_redaction(raw_pdf, final_pdf, _expand_bbox(detection.bbox))
         if not _verify_footer_removed(final_pdf):
             _cleanup_failed_output(final_pdf)
             preserved = _preserve_raw_pdf(raw_pdf, preserved_raw_pdf)

@@ -10,7 +10,7 @@ Export Feishu/Lark docs with synced blocks expanded into:
 
 - `lark-cli` configured with a user session
 - Python 3.14
-- A working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
+- For `--pdf-mode rendered`: a working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
 
 If you use `uvx` / `uv tool install`, `uv` can provision the required Python for
 the tool environment automatically.
@@ -22,7 +22,7 @@ uv tool install lark-doc-exporter
 lark-doc-exporter doctor
 ```
 
-If Chromium is missing, prepare it once:
+If you want rendered PDF output and Chromium is missing, prepare it once:
 
 ```bash
 uvx --from playwright playwright install chromium
@@ -68,14 +68,14 @@ Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `
 
 ## Chromium Setup
 
-- `doctor` reports whether both `lark-cli` and Chromium are ready.
+- `doctor` reports whether `lark-cli` is ready and whether Chromium is available for rendered PDF mode.
 - If you already have a browser binary, you can point the exporter at it with `LARK_DOC_EXPORTER_CHROMIUM=/path/to/chromium`.
 - If `LARK_DOC_EXPORTER_CHROMIUM` is set to a missing path, the command fails explicitly instead of silently falling back.
 
 ## Output
 
 - `markdown` keeps the localized Markdown file in the output directory.
-- `pdf` is rendered locally from the localized Markdown via HTML/CSS + Chromium.
+- `pdf` uses either local HTML/CSS + Chromium (`--pdf-mode rendered`) or Feishu native PDF plus footer handling (`--pdf-mode native`).
 - `images/` contains same-run localized image assets used by the Markdown/PDF.
 
 ### Native PDF Mode

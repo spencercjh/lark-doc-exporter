@@ -12,7 +12,7 @@ from .skill_install import run_skill_install
 
 def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Expand Feishu/Lark synced blocks, export Markdown, and render local PDF.",
+        description="Expand Feishu/Lark synced blocks, export Markdown, and produce rendered or native PDF output.",
         epilog=(
             "Other commands:\n"
             "  doctor\n"
@@ -53,12 +53,12 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--theme",
         default="default",
-        help="Built-in PDF theme name. Supported: default, company.",
+        help="Built-in rendered-PDF theme name. Supported: default, company.",
     )
     parser.add_argument(
         "--css",
         default="",
-        help="Optional extra CSS file layered on top of the selected theme for PDF output.",
+        help="Optional extra CSS file layered on top of the selected theme for rendered PDF output.",
     )
     parser.add_argument(
         "--pdf-mode",
