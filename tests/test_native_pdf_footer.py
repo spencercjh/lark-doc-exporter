@@ -1,9 +1,12 @@
 from pathlib import Path
 
+import fitz
+
 from lark_synced_export.native_pdf_footer import (
     FooterDetection,
     NativePdfPostprocessResult,
     PdfWord,
+    _apply_footer_redaction,
     _read_last_page_words,
     detect_footer,
     normalize_footer_text,
@@ -53,9 +56,17 @@ def test_detect_footer_matches_single_bottom_cluster_with_tiny_word_overlap():
 
 def test_detect_footer_matches_footer_anywhere_on_last_page():
     words = [
-        PdfWord("(注：内容由", 24, 193.26, 116, 207.26),
-        PdfWord("AI", 120, 193.26, 138, 207.26),
-        PdfWord("生成，请谨慎参考）", 142, 193.26, 258, 207.26),
+        PdfWord("(注：内容由", 24, 193.26, 116, 207.26, font_size=10.5, color=10066329),
+        PdfWord("AI", 120, 193.26, 138, 207.26, font_size=10.5, color=10066329),
+        PdfWord(
+            "生成，请谨慎参考）",
+            142,
+            193.26,
+            258,
+            207.26,
+            font_size=10.5,
+            color=10066329,
+        ),
     ]
 
     detection = detect_footer(words, page_width=595.0, page_height=841.92)
@@ -65,6 +76,31 @@ def test_detect_footer_matches_footer_anywhere_on_last_page():
         normalized_text="(注:内容由AI生成,请谨慎参考)",
         word_indexes=(0, 1, 2),
         bbox=(24.0, 193.26, 258.0, 207.26),
+    )
+
+
+def test_detect_footer_ignores_body_styled_whitelist_text_on_last_page():
+    words = [
+        PdfWord("(注：内容由", 24, 193.26, 116, 207.26, font_size=12.0, color=2040617),
+        PdfWord("AI", 120, 193.26, 138, 207.26, font_size=12.0, color=2040617),
+        PdfWord(
+            "生成，请谨慎参考）",
+            142,
+            193.26,
+            258,
+            207.26,
+            font_size=12.0,
+            color=2040617,
+        ),
+    ]
+
+    detection = detect_footer(words, page_width=595.0, page_height=841.92)
+
+    assert detection == FooterDetection(
+        status="not_found",
+        normalized_text=None,
+        word_indexes=(),
+        bbox=None,
     )
 
 
@@ -247,7 +283,7 @@ def test_postprocess_native_pdf_returns_mask_failed_when_verification_fails(
     )
     monkeypatch.setattr(
         "lark_synced_export.native_pdf_footer._verify_footer_removed",
-        lambda _path: False,
+        lambda _path, _bbox: False,
     )
 
     result = postprocess_native_pdf(raw_pdf, final_pdf, preserved_raw_pdf)
@@ -378,6 +414,43 @@ def test_postprocess_native_pdf_verifies_only_the_redacted_region(
     assert result.status == "removed"
     assert result.final_pdf_path == str(final_pdf)
     assert result.raw_pdf_path is None
+
+
+def test_apply_footer_redaction_preserves_non_white_page_background(tmp_path: Path):
+    raw_pdf = tmp_path / "demo.native-raw.pdf"
+    final_pdf = tmp_path / "demo.pdf"
+
+    doc = fitz.open()
+    page = doc.new_page(width=200.0, height=200.0)
+    background = (0.8, 0.9, 1.0)
+    page.draw_rect(page.rect, color=background, fill=background)
+    page.insert_text(
+        (20.0, 100.0),
+        "FOOTER",
+        fontsize=12.0,
+        fontname="helv",
+        fill=(0.6, 0.6, 0.6),
+    )
+    doc.save(raw_pdf)
+    doc.close()
+
+    _apply_footer_redaction(raw_pdf, final_pdf, (18.0, 85.0, 90.0, 105.0))
+
+    document = fitz.open(final_pdf)
+    try:
+        page = document[-1]
+        pixmap = page.get_pixmap(alpha=False)
+        center_x = 30
+        center_y = 95
+        offset = (center_y * pixmap.width + center_x) * pixmap.n
+        center_rgb = tuple(pixmap.samples[offset : offset + pixmap.n])
+        bg_offset = (5 * pixmap.width + 5) * pixmap.n
+        background_rgb = tuple(pixmap.samples[bg_offset : bg_offset + pixmap.n])
+        assert center_rgb == background_rgb
+        assert center_rgb != (255, 255, 255)
+        assert page.get_text("text").strip() == ""
+    finally:
+        document.close()
 
 
 def test_read_last_page_words_requests_sorted_word_order(monkeypatch, tmp_path: Path):

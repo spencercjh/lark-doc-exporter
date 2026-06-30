@@ -38,6 +38,8 @@ class PdfWord:
     y0: float
     x1: float
     y1: float
+    font_size: float | None = None
+    color: int | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,51 @@ def _rectangles_overlap(
         or left[3] <= right[1]
         or right[3] <= left[1]
     )
+
+
+def _rect_intersection_area(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+) -> float:
+    overlap_x = min(left[2], right[2]) - max(left[0], right[0])
+    overlap_y = min(left[3], right[3]) - max(left[1], right[1])
+    if overlap_x <= 0.0 or overlap_y <= 0.0:
+        return 0.0
+    return overlap_x * overlap_y
+
+
+def _color_is_footer_like(color: int) -> bool:
+    red = (color >> 16) & 0xFF
+    green = (color >> 8) & 0xFF
+    blue = color & 0xFF
+    return (
+        max(red, green, blue) - min(red, green, blue) <= 6
+        and 120 <= red <= 190
+        and 120 <= green <= 190
+        and 120 <= blue <= 190
+    )
+
+
+def _candidate_looks_like_footer(cluster: Sequence[tuple[int, PdfWord]]) -> bool:
+    styled_words = [
+        word
+        for _index, word in cluster
+        if word.font_size is not None and word.color is not None
+    ]
+    if not styled_words:
+        return True
+
+    font_sizes = [word.font_size for word in styled_words if word.font_size is not None]
+    colors = [word.color for word in styled_words if word.color is not None]
+    if not font_sizes or not colors:
+        return True
+    if max(font_sizes) - min(font_sizes) > 0.75:
+        return False
+    if not all(9.0 <= font_size <= 11.0 for font_size in font_sizes):
+        return False
+    if len(set(colors)) != 1:
+        return False
+    return all(_color_is_footer_like(color) for color in colors)
 
 
 def _words_share_line(left: PdfWord, right: PdfWord) -> bool:
@@ -161,7 +208,9 @@ def _find_split_cluster_variant(
                 continue
 
             normalized_text = _cluster_text(combined)
-            if normalized_text in FOOTER_VARIANTS:
+            if normalized_text in FOOTER_VARIANTS and _candidate_looks_like_footer(
+                combined
+            ):
                 return normalized_text
     return None
 
@@ -191,7 +240,9 @@ def detect_footer(
             for end in range(start + 1, len(cluster) + 1):
                 candidate = cluster[start:end]
                 normalized_text = _cluster_text(candidate)
-                if normalized_text in FOOTER_VARIANTS:
+                if normalized_text in FOOTER_VARIANTS and _candidate_looks_like_footer(
+                    candidate
+                ):
                     matches.append((candidate, normalized_text))
 
     if not matches:
@@ -234,19 +285,82 @@ def _read_last_page_words(pdf_path: Path) -> tuple[list[PdfWord], float, float]:
     document = fitz.open(pdf_path)
     try:
         page = document[-1]
-        words = [
-            PdfWord(
-                text=str(item[4]),
-                x0=float(item[0]),
-                y0=float(item[1]),
-                x1=float(item[2]),
-                y1=float(item[3]),
+        rawdict = page.get_text("rawdict", sort=True)
+        style_spans: list[
+            tuple[tuple[float, float, float, float], float | None, int | None]
+        ] = []
+        if isinstance(rawdict, dict):
+            for block in rawdict.get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        bbox = span.get("bbox")
+                        if bbox is None:
+                            continue
+                        style_spans.append(
+                            (
+                                (
+                                    float(bbox[0]),
+                                    float(bbox[1]),
+                                    float(bbox[2]),
+                                    float(bbox[3]),
+                                ),
+                                (
+                                    float(span["size"])
+                                    if span.get("size") is not None
+                                    else None
+                                ),
+                                int(span["color"])
+                                if span.get("color") is not None
+                                else None,
+                            )
+                        )
+
+        words: list[PdfWord] = []
+        for item in page.get_text("words", sort=True):
+            bbox = (
+                float(item[0]),
+                float(item[1]),
+                float(item[2]),
+                float(item[3]),
             )
-            for item in page.get_text("words", sort=True)
-        ]
+            font_size, color = _lookup_word_style(bbox, style_spans)
+            words.append(
+                PdfWord(
+                    text=str(item[4]),
+                    x0=bbox[0],
+                    y0=bbox[1],
+                    x1=bbox[2],
+                    y1=bbox[3],
+                    font_size=font_size,
+                    color=color,
+                )
+            )
         return words, float(page.rect.width), float(page.rect.height)
     finally:
         document.close()
+
+
+def _lookup_word_style(
+    word_bbox: tuple[float, float, float, float],
+    style_spans: Sequence[
+        tuple[tuple[float, float, float, float], float | None, int | None]
+    ],
+) -> tuple[float | None, int | None]:
+    overlap_by_style: dict[tuple[float | None, int | None], float] = {}
+    style_values: dict[
+        tuple[float | None, int | None], tuple[float | None, int | None]
+    ] = {}
+    for span_bbox, font_size, color in style_spans:
+        overlap = _rect_intersection_area(word_bbox, span_bbox)
+        if overlap <= 0.0:
+            continue
+        key = (round(font_size, 3) if font_size is not None else None, color)
+        overlap_by_style[key] = overlap_by_style.get(key, 0.0) + overlap
+        style_values[key] = (font_size, color)
+    if not overlap_by_style:
+        return (None, None)
+    best_key = max(overlap_by_style.items(), key=lambda item: item[1])[0]
+    return style_values[best_key]
 
 
 def _copy_raw_pdf(raw_pdf: Path, final_pdf: Path) -> None:
@@ -269,7 +383,8 @@ def _apply_footer_redaction(
     document = fitz.open(raw_pdf)
     try:
         page = document[-1]
-        page.add_redact_annot(fitz.Rect(*bbox), fill=(1, 1, 1))
+        # Preserve the original page background instead of painting a white box.
+        page.add_redact_annot(fitz.Rect(*bbox), fill=False)
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
         document.save(final_pdf)
     finally:
