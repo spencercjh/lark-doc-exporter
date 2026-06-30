@@ -24,7 +24,8 @@ but they are not suitable as long-lived repository fixtures. The new scope is
 therefore intentionally narrow:
 
 > add one lightweight public-doc E2E framework that is ready for CI now, but
-> explicitly skips until a stable public document reference is provided.
+> can also be bootstrapped by authoring one stable public test document as part
+> of this task.
 
 The public document is expected to change rarely, but the test intent is still
 feature-oriented rather than “diff every byte of every artifact.”
@@ -32,20 +33,30 @@ feature-oriented rather than “diff every byte of every artifact.”
 ## Assumptions
 
 - v1 covers exactly one canonical public document fixture.
+- The canonical public fixture document may be authored during this task rather
+  than supplied by a human later.
 - The future public document is stable enough that snapshot maintenance remains
   rare and deliberate.
-- The most important regressions are feature-specific:
-  synced blocks, callouts, whiteboards, image localization, native-PDF cleanup,
-  and similar exported behaviors.
+- The canonical feature coverage for v1 is fixed and explicit:
+  - markdown table
+  - markdown blockquote
+  - Feishu callout / highlight block
+  - Feishu synced block with two occurrences in the same document
+  - Feishu whiteboard
+  - image export/localization
 - This test lane depends on real external export behavior and therefore must
   remain outside the default offline CI/test surface.
+- A real CI execution path needs both a committed document reference and some
+  non-interactive way for `lark-cli` to access a user session on the runner.
 
 ## Goals
 
 - Add a single, easy-to-read E2E test entry for one public document.
+- Allow the task implementation to create and then lock one canonical public
+  test document.
 - Keep the framework pure Python and repo-native.
 - Make the CI wiring visible now, even before the public document exists.
-- Validate a small set of canonical feature points with precise snapshots.
+- Validate the fixed canonical feature set with precise snapshots.
 - Keep failure messages tied to feature names so regressions are easy to triage.
 
 ## Non-Goals
@@ -65,8 +76,8 @@ Why choose it:
 - keeps the framework extremely small
 - preserves precise regression signals where they matter
 - avoids whole-artifact diff noise
-- matches the real requirement: validate several key exported features, not
-  maintain a generalized test platform
+- matches the real requirement: validate one stable public document against a
+  fixed list of key exported features, not maintain a generalized test platform
 
 ### 2. Whole-artifact snapshots
 
@@ -138,6 +149,13 @@ The configuration should include:
   - stable CLI result fields to compare exactly
 - `FEATURE_POINTS`
   - one list entry per canonical feature under test
+  - for v1, the list is fixed to:
+    - markdown table
+    - markdown blockquote
+    - callout / highlight block
+    - synced block repeated in two places in the same document
+    - whiteboard
+    - image
 
 Each feature-point entry should stay deliberately “low-tech.” Support only:
 
@@ -256,6 +274,11 @@ Before `DOC_REF` is set:
 This avoids a second future plumbing step. Once the public document ref is
 filled in, the same job naturally becomes a real E2E execution path.
 
+If the repository later commits a real `DOC_REF` but the CI runner still lacks
+usable `lark-cli` user-session material, the implementation must fail or skip
+that job explicitly with a clear message rather than silently pretending the
+E2E lane is active.
+
 #### 3.3 Feature-oriented failure reporting
 
 Failures should be reported from the feature-point perspective, not as one large
@@ -300,12 +323,15 @@ When this design is implemented, validation should include:
 - explicit CI-job verification:
   - job exists before the fixture is configured
   - job is visibly `skipped` while `DOC_REF` is unset
+  - once `DOC_REF` is configured, the job clearly reports whether runner auth is
+    ready for a real E2E execution
 
 ## Scope Boundary
 
 This design intentionally stops at a narrow v1:
 
 - one public document
+- one agent-authored or otherwise committed canonical public fixture
 - one pytest entrypoint
 - one Python case file
 - one checked-in snapshot set
