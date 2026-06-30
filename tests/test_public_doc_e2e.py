@@ -58,7 +58,13 @@ def test_assert_feature_point_reports_named_failure(tmp_path: Path):
     with pytest.raises(
         AssertionError, match="feature markdown_table: markdown snapshot missing"
     ):
-        assert_feature_point(feature, "other text", "other pdf", snapshot_root)
+        assert_feature_point(
+            feature,
+            "other text",
+            "other pdf",
+            0,
+            snapshot_root=snapshot_root,
+        )
 
 
 def test_is_lark_cli_user_ready_accepts_needs_refresh(monkeypatch):
