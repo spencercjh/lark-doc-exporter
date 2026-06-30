@@ -60,6 +60,12 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
         default="",
         help="Optional extra CSS file layered on top of the selected theme for PDF output.",
     )
+    parser.add_argument(
+        "--pdf-mode",
+        choices=["rendered", "native"],
+        default="rendered",
+        help="PDF pipeline selection. Use `rendered` for local HTML/Chromium PDF or `native` for Feishu native PDF plus AI footer handling.",
+    )
     return parser.parse_args(argv)
 
 
@@ -119,6 +125,12 @@ def run_main(argv: list[str] | None = None) -> int:
     invalid = [fmt for fmt in formats if fmt not in allowed]
     if invalid:
         raise SystemExit(f"unsupported formats: {', '.join(invalid)}")
+    if (
+        "pdf" in formats
+        and args.pdf_mode == "native"
+        and (args.theme != "default" or bool(args.css))
+    ):
+        raise SystemExit("--pdf-mode native does not support explicit --theme or --css")
 
     result = export_document(
         doc_ref=args.doc,
@@ -129,9 +141,12 @@ def run_main(argv: list[str] | None = None) -> int:
         keep_temp_doc=args.keep_temp_doc,
         theme_name=args.theme,
         override_css=Path(args.css).expanduser().resolve() if args.css else None,
+        pdf_mode=args.pdf_mode,
     )
+    for warning in result.get("warnings", []):
+        sys.stderr.write(f"warning: {warning}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if result.get("ok", False) else 1
 
 
 def main() -> None:

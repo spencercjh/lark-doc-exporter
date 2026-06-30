@@ -1,6 +1,6 @@
 ---
 name: lark-doc-exporter
-description: Export Feishu/Lark docs with synced blocks expanded into Markdown and themeable local PDFs, and install this companion skill into Codex or Claude Code.
+description: Export Feishu/Lark docs with synced blocks expanded into Markdown plus rendered or native PDFs, and install this companion skill into Codex or Claude Code.
 ---
 
 # lark-doc-exporter
@@ -8,7 +8,7 @@ description: Export Feishu/Lark docs with synced blocks expanded into Markdown a
 Use this tool when a user wants to:
 
 - export a Feishu/Lark doc into localized Markdown
-- render a themeable local PDF from that Markdown
+- render a themeable local PDF from that Markdown or use native Feishu PDF mode
 - check whether `lark-cli` and Chromium are ready
 - install this companion skill into supported AI hosts
 
@@ -31,10 +31,11 @@ lark-doc-exporter \
   --doc "<doc-url-or-token>" \
   --output-dir exports/demo \
   --formats markdown,pdf \
-  --theme default
+  --theme default \
+  --pdf-mode rendered
 ```
 
-Expands synced blocks, exports Markdown, localizes images, and optionally renders a local PDF.
+Expands synced blocks, exports Markdown, localizes images, and optionally renders a local PDF or uses native Feishu PDF plus footer handling.
 
 ```bash
 lark-doc-exporter skill install --dry-run
@@ -49,6 +50,7 @@ Installs this companion skill into supported AI hosts. Auto mode installs only i
 - `--formats markdown,pdf`: choose output formats
 - `--theme default|company`: pick the built-in PDF theme
 - `--css /path/to/extra.css`: layer extra print CSS on top of the chosen theme
+- `--pdf-mode rendered|native`: choose local rendered PDF or native Feishu PDF plus footer handling
 - `--keep-temp-doc`: keep the temporary expanded Feishu doc for inspection
 - `skill install --host codex|claude|all`: select install targets
 - `skill install --force`: overwrite an unknown existing target directory
@@ -58,4 +60,4 @@ Installs this companion skill into supported AI hosts. Auto mode installs only i
 
 - Prefer `doctor` before the first export on a new machine.
 - Use `--dry-run` before `skill install` when the user wants to verify target paths.
-- The PDF path is local HTML/CSS + Chromium, so it avoids the Feishu server-side PDF disclaimer route.
+- Use `--pdf-mode native` when the user wants Feishu native PDF layout plus AI-footer handling.

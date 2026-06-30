@@ -3,10 +3,8 @@
 Export Feishu/Lark docs with synced blocks expanded into:
 
 - Markdown with localized images
-- Themeable locally rendered PDF
-
-The PDF path deliberately avoids the Feishu `docs_ai -> export pdf` route so the
-final file does not include the AI disclaimer injected by that server-side path.
+- Themeable locally rendered PDF by default
+- Optional native Feishu PDF mode with AI-footer post-processing
 
 ## Requirements
 
@@ -79,6 +77,25 @@ Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `
 - `markdown` keeps the localized Markdown file in the output directory.
 - `pdf` is rendered locally from the localized Markdown via HTML/CSS + Chromium.
 - `images/` contains same-run localized image assets used by the Markdown/PDF.
+
+### Native PDF Mode
+
+If you want Feishu native PDF layout instead of the local HTML/Chromium path:
+
+```bash
+lark-doc-exporter \
+  --doc "https://dynamia-ai.feishu.cn/wiki/BVXXwgzbZivjQZkr7jmcsGcinGh" \
+  --output-dir exports/native \
+  --formats pdf \
+  --pdf-mode native
+```
+
+Native mode rules:
+
+- only the PDF branch changes; markdown stays on the current markdown pipeline
+- explicit non-default `--theme` / `--css` are rejected
+- success states are `removed` and `not_found`
+- failure states emit warnings and keep `<stem>.native-raw.pdf` for inspection
 
 ## Themes
 
