@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+from hashlib import sha256
 from pathlib import Path
 
 import fitz
@@ -62,6 +63,42 @@ def test_assert_feature_point_reports_named_failure(tmp_path: Path):
             feature,
             "other text",
             "other pdf",
+            [],
+            0,
+            snapshot_root=snapshot_root,
+        )
+
+
+def test_assert_feature_point_reports_missing_pdf_image_snapshot(tmp_path: Path):
+    snapshot_root = tmp_path / "snapshots"
+    snapshot_root.mkdir(parents=True)
+    (snapshot_root / "pdf").mkdir(parents=True)
+    (snapshot_root / "pdf" / "whiteboard_image.json").write_text(
+        json.dumps(
+            {
+                "page": 2,
+                "width": 2560,
+                "height": 2560,
+                "ext": "jpeg",
+                "sha256": "demo",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    feature = FeaturePoint(
+        name="whiteboard",
+        pdf_image_snapshot="pdf/whiteboard_image.json",
+    )
+
+    with pytest.raises(
+        AssertionError, match="feature whiteboard: pdf image snapshot missing"
+    ):
+        assert_feature_point(
+            feature,
+            "markdown",
+            "pdf text",
+            [],
             0,
             snapshot_root=snapshot_root,
         )
@@ -102,6 +139,19 @@ def test_is_lark_cli_user_ready_rejects_missing_binary(monkeypatch):
     assert "not on PATH" in detail
 
 
+def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_user_ready",
+        lambda: (False, "User identity unavailable"),
+    )
+
+    with pytest.raises(
+        pytest.fail.Exception,
+        match="canonical public doc is configured but lark-cli user session unavailable: User identity unavailable",
+    ):
+        require_public_doc_auth_ready()
+
+
 def build_stable_result(payload: dict[str, object]) -> dict[str, object]:
     ai_footer = payload.get("ai_footer_postprocess") or {}
     return {
@@ -126,10 +176,15 @@ def load_snapshot(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def load_json_snapshot(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def assert_feature_point(
     feature: FeaturePoint,
     markdown_text: str,
     pdf_text: str,
+    pdf_images: list[dict[str, object]],
     pdf_total_images: int,
     snapshot_root: Path = SNAPSHOT_ROOT,
 ) -> None:
@@ -148,6 +203,13 @@ def assert_feature_point(
         assert expected_pdf in pdf_text, (
             f"feature {feature.name}: pdf text snapshot missing"
         )
+
+    if feature.pdf_image_snapshot:
+        expected_image = load_json_snapshot(snapshot_root / feature.pdf_image_snapshot)
+        assert any(
+            all(actual.get(key) == value for key, value in expected_image.items())
+            for actual in pdf_images
+        ), f"feature {feature.name}: pdf image snapshot missing"
 
     if feature.pdf_total_images_at_least is not None:
         assert pdf_total_images >= feature.pdf_total_images_at_least, (
@@ -190,6 +252,15 @@ def is_lark_cli_user_ready() -> tuple[bool, str]:
     return True, user.get("message", "User identity ready")
 
 
+def require_public_doc_auth_ready() -> None:
+    auth_ready, auth_detail = is_lark_cli_user_ready()
+    if not auth_ready:
+        pytest.fail(
+            "canonical public doc is configured but lark-cli user session unavailable: "
+            f"{auth_detail}"
+        )
+
+
 def extract_pdf_text(pdf_path: Path) -> str:
     document = fitz.open(pdf_path)
     try:
@@ -198,12 +269,30 @@ def extract_pdf_text(pdf_path: Path) -> str:
         document.close()
 
 
-def extract_pdf_total_images(pdf_path: Path) -> int:
+def extract_pdf_images(pdf_path: Path) -> list[dict[str, object]]:
     document = fitz.open(pdf_path)
     try:
-        return sum(len(page.get_images(full=True)) for page in document)
+        images: list[dict[str, object]] = []
+        for page_no, page in enumerate(document, start=1):
+            for image in page.get_images(full=True):
+                meta = document.extract_image(image[0])
+                payload = meta.get("image", b"")
+                images.append(
+                    {
+                        "page": page_no,
+                        "width": meta.get("width"),
+                        "height": meta.get("height"),
+                        "ext": meta.get("ext"),
+                        "sha256": sha256(payload).hexdigest(),
+                    }
+                )
+        return images
     finally:
         document.close()
+
+
+def extract_pdf_total_images(pdf_path: Path) -> int:
+    return len(extract_pdf_images(pdf_path))
 
 
 @pytest.mark.e2e_public_doc
@@ -211,11 +300,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if case.DOC_REF is None:
         pytest.skip("public doc fixture not configured")
 
-    auth_ready, auth_detail = is_lark_cli_user_ready()
-    if not auth_ready:
-        pytest.skip(
-            f"lark-cli user session not configured for public doc e2e: {auth_detail}"
-        )
+    require_public_doc_auth_ready()
 
     output_dir = tmp_path / case.FILE_STEM
     exit_code = run_main(
@@ -248,7 +333,10 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
 
     markdown_text = markdown_path.read_text(encoding="utf-8")
     pdf_text = extract_pdf_text(pdf_path)
+    pdf_images = extract_pdf_images(pdf_path)
     pdf_total_images = extract_pdf_total_images(pdf_path)
+
+    assert pdf_total_images == case.EXPECTED_PDF_TOTAL_IMAGES
 
     if "localized_images" in expected_result:
         images_dir = output_dir / "images"
@@ -256,4 +344,10 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
         assert len(sorted(images_dir.iterdir())) == expected_result["localized_images"]
 
     for feature in case.FEATURE_POINTS:
-        assert_feature_point(feature, markdown_text, pdf_text, pdf_total_images)
+        assert_feature_point(
+            feature,
+            markdown_text,
+            pdf_text,
+            pdf_images,
+            pdf_total_images,
+        )

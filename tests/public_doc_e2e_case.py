@@ -8,6 +8,7 @@ class FeaturePoint:
     name: str
     markdown_contains_snapshot: str | None = None
     pdf_text_contains_snapshot: str | None = None
+    pdf_image_snapshot: str | None = None
     pdf_total_images_at_least: int | None = None
     markdown_forbid: tuple[str, ...] = ()
     pdf_forbid: tuple[str, ...] = ()
@@ -15,6 +16,7 @@ class FeaturePoint:
 
 DOC_REF = "IkCedJjFIoypyzxwXjacRSy9nBg"
 FILE_STEM = "public-doc-e2e"
+EXPECTED_PDF_TOTAL_IMAGES = 2
 EXPORT_ARGS = {
     "formats": ["markdown", "pdf"],
     "pdf_mode": "native",
@@ -47,11 +49,13 @@ FEATURE_POINTS: tuple[FeaturePoint, ...] = (
     FeaturePoint(
         name="whiteboard",
         markdown_contains_snapshot="markdown/whiteboard.md",
+        pdf_image_snapshot="pdf/whiteboard_image.json",
         markdown_forbid=("<whiteboard",),
     ),
     FeaturePoint(
         name="image",
         markdown_contains_snapshot="markdown/image.md",
+        pdf_image_snapshot="pdf/image_image.json",
         pdf_total_images_at_least=2,
         markdown_forbid=("authcode/?code=",),
         pdf_forbid=("加载失败",),
