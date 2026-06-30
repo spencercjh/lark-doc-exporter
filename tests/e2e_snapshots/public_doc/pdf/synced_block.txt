@@ -1,0 +1,1 @@
+本文档面向 SRE / 平台工程师，说明如何使用 All-in-One 离线包在 Kubernetes 集群中部署 HAMi AI Platform，并完成证书激活、GPU 节点启用和示例工作负载验证。

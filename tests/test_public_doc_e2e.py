@@ -20,6 +20,7 @@ SNAPSHOT_ROOT = Path(__file__).with_name("e2e_snapshots") / "public_doc"
 def test_build_stable_result_filters_runtime_fields():
     payload = {
         "ok": True,
+        "expanded_references": 2,
         "pdf_mode": "native",
         "pdf_renderer": "feishu-native",
         "localized_images": 2,
@@ -30,6 +31,7 @@ def test_build_stable_result_filters_runtime_fields():
 
     assert build_stable_result(payload) == {
         "ok": True,
+        "expanded_references": 2,
         "pdf_mode": "native",
         "pdf_renderer": "feishu-native",
         "localized_images": 2,
@@ -38,7 +40,7 @@ def test_build_stable_result_filters_runtime_fields():
 
 
 def test_normalize_pdf_text_collapses_whitespace():
-    assert normalize_pdf_text("A  \n\nB\t\tC\n") == "A B C"
+    assert normalize_pdf_text("A\u200b  \n\nB\t\tC\ufeff\n") == "A B C"
 
 
 def test_assert_feature_point_reports_named_failure(tmp_path: Path):
@@ -98,6 +100,7 @@ def build_stable_result(payload: dict[str, object]) -> dict[str, object]:
     ai_footer = payload.get("ai_footer_postprocess") or {}
     return {
         "ok": payload.get("ok"),
+        "expanded_references": payload.get("expanded_references"),
         "pdf_mode": payload.get("pdf_mode"),
         "pdf_renderer": payload.get("pdf_renderer"),
         "localized_images": payload.get("localized_images"),
@@ -107,6 +110,7 @@ def build_stable_result(payload: dict[str, object]) -> dict[str, object]:
 
 def normalize_pdf_text(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n+", "\n", text)
     return " ".join(part.strip() for part in text.splitlines() if part.strip())
@@ -120,6 +124,7 @@ def assert_feature_point(
     feature: FeaturePoint,
     markdown_text: str,
     pdf_text: str,
+    pdf_total_images: int,
     snapshot_root: Path = SNAPSHOT_ROOT,
 ) -> None:
     if feature.markdown_contains_snapshot:
@@ -136,6 +141,12 @@ def assert_feature_point(
         )
         assert expected_pdf in pdf_text, (
             f"feature {feature.name}: pdf text snapshot missing"
+        )
+
+    if feature.pdf_total_images_at_least is not None:
+        assert pdf_total_images >= feature.pdf_total_images_at_least, (
+            f"feature {feature.name}: expected at least "
+            f"{feature.pdf_total_images_at_least} pdf images, got {pdf_total_images}"
         )
 
     for forbidden in feature.markdown_forbid:
@@ -177,6 +188,14 @@ def extract_pdf_text(pdf_path: Path) -> str:
     document = fitz.open(pdf_path)
     try:
         return normalize_pdf_text("\n".join(page.get_text("text") for page in document))
+    finally:
+        document.close()
+
+
+def extract_pdf_total_images(pdf_path: Path) -> int:
+    document = fitz.open(pdf_path)
+    try:
+        return sum(len(page.get_images(full=True)) for page in document)
     finally:
         document.close()
 
@@ -223,6 +242,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
 
     markdown_text = markdown_path.read_text(encoding="utf-8")
     pdf_text = extract_pdf_text(pdf_path)
+    pdf_total_images = extract_pdf_total_images(pdf_path)
 
     if "localized_images" in expected_result:
         images_dir = output_dir / "images"
@@ -230,4 +250,4 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
         assert len(sorted(images_dir.iterdir())) == expected_result["localized_images"]
 
     for feature in case.FEATURE_POINTS:
-        assert_feature_point(feature, markdown_text, pdf_text)
+        assert_feature_point(feature, markdown_text, pdf_text, pdf_total_images)
