@@ -125,11 +125,7 @@ def run_main(argv: list[str] | None = None) -> int:
     invalid = [fmt for fmt in formats if fmt not in allowed]
     if invalid:
         raise SystemExit(f"unsupported formats: {', '.join(invalid)}")
-    if (
-        "pdf" in formats
-        and args.pdf_mode == "native"
-        and (args.theme != "default" or bool(args.css))
-    ):
+    if args.pdf_mode == "native" and (args.theme != "default" or bool(args.css)):
         raise SystemExit("--pdf-mode native does not support explicit --theme or --css")
 
     result = export_document(

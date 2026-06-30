@@ -27,6 +27,29 @@ def test_run_main_rejects_custom_theme_in_native_pdf_mode(tmp_path: Path):
         )
 
 
+def test_run_main_rejects_custom_theme_in_native_pdf_mode_for_markdown_only(
+    tmp_path: Path,
+):
+    with pytest.raises(
+        SystemExit,
+        match="--pdf-mode native does not support explicit --theme or --css",
+    ):
+        run_main(
+            [
+                "--doc",
+                "demo",
+                "--output-dir",
+                str(tmp_path),
+                "--formats",
+                "markdown",
+                "--pdf-mode",
+                "native",
+                "--theme",
+                "company",
+            ]
+        )
+
+
 def test_run_main_returns_one_and_prints_json_for_controlled_native_failure(
     monkeypatch, capsys, tmp_path: Path
 ):
