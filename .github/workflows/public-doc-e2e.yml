@@ -51,7 +51,18 @@ jobs:
           printf '%s' "$LARK_CLI_HOME_B64" | base64 -d > /tmp/lark-cli-home.tgz
           tar -xzf /tmp/lark-cli-home.tgz -C "$HOME"
 
+      - name: Note missing lark-cli auth fixture
+        if: ${{ env.LARK_CLI_HOME_B64 == '' }}
+        shell: bash
+        run: |
+          {
+            echo "### public-doc-e2e not provisioned"
+            echo
+            echo "Skipping live public-doc E2E because LARK_CLI_HOME_B64 is not configured for this repository."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Show lark-cli auth status
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         shell: bash
         run: |
           set -o pipefail
@@ -64,17 +75,21 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Python
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up uv
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         uses: astral-sh/setup-uv@v8.2.0
         with:
           enable-cache: true
 
       - name: Sync dev dependencies
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run public-doc e2e
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         run: make test-public-doc-e2e

@@ -289,9 +289,10 @@ Recommended behavior:
 - `push` to `main` runs the lane
 - `pull_request` runs only for same-repository branches, not forks, because the
   runner needs repo secrets for the `lark-cli` home restore path
-- the secret-restore step may no-op with a visible summary message when the
-  secret is absent, but the job must then fail explicitly during auth/test
-  readiness rather than silently pretending the E2E lane is active
+- if the repository has not provisioned `LARK_CLI_HOME_B64` yet, the workflow
+  should record a visible “not provisioned” summary and skip the live steps
+- once that secret is provisioned, restore/auth/test failures should remain hard
+  failures rather than silently pretending the E2E lane is active
 
 #### 3.3 Feature-oriented failure reporting
 
@@ -337,8 +338,8 @@ When this design is implemented, validation should include:
 - explicit CI-job verification:
   - job is gated off for fork PRs
   - auth restore avoids invalid workflow expressions around `secrets`
-  - same-repo runs clearly report whether runner auth is ready for a real E2E
-    execution
+  - same-repo runs clearly distinguish “not provisioned yet” from “provisioned
+    but broken auth / failing E2E”
 
 ## Scope Boundary
 

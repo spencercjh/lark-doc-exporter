@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add one pure-Python public-document E2E lane for `lark-doc-exporter`, author a stable public fixture document that covers the required Feishu feature set, and wire a dedicated CI workflow that runs the lane when runner auth is available and otherwise fails explicitly once the canonical fixture is configured.
+**Goal:** Add one pure-Python public-document E2E lane for `lark-doc-exporter`, author a stable public fixture document that covers the required Feishu feature set, and wire a dedicated CI workflow that runs the lane when runner auth is available and otherwise records an explicit non-provisioned status until the auth fixture secret is configured.
 
-**Architecture:** Keep the implementation narrow: one case-config module, one pytest entrypoint, one checked-in snapshot tree, and one dedicated workflow. The test should compare only stable result fields plus feature-point snapshot fragments and PDF image fingerprints, while live Feishu/Lark dependencies are isolated behind explicit auth checks and same-repo workflow gating instead of entering the default offline test surface.
+**Architecture:** Keep the implementation narrow: one case-config module, one pytest entrypoint, one checked-in snapshot tree, and one dedicated workflow. The test should compare only stable result fields plus feature-point snapshot fragments and PDF image fingerprints, while live Feishu/Lark dependencies are isolated behind explicit auth checks and same-repo workflow gating instead of entering the default offline test surface. In GitHub Actions, the live steps should execute only when `LARK_CLI_HOME_B64` is provisioned; otherwise the workflow should emit a visible summary and skip the live lane without pretending auth was restored.
 
 **Tech Stack:** Python 3.14, `uv`, `pytest`, PyMuPDF (`fitz`), `lark-cli` 1.0.56 (`@larksuite/cli`), GitHub Actions
 
@@ -525,7 +525,18 @@ jobs:
           printf '%s' "$LARK_CLI_HOME_B64" | base64 -d > /tmp/lark-cli-home.tgz
           tar -xzf /tmp/lark-cli-home.tgz -C "$HOME"
 
+      - name: Note missing lark-cli auth fixture
+        if: ${{ env.LARK_CLI_HOME_B64 == '' }}
+        shell: bash
+        run: |
+          {
+            echo "### public-doc-e2e not provisioned"
+            echo
+            echo "Skipping live public-doc E2E because LARK_CLI_HOME_B64 is not configured for this repository."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Show lark-cli auth status
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         shell: bash
         run: |
           set -o pipefail
@@ -538,19 +549,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Python
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up uv
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         uses: astral-sh/setup-uv@v8.2.0
         with:
           enable-cache: true
 
       - name: Sync dev dependencies
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run public-doc e2e
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
         run: make test-public-doc-e2e
 ```
 
