@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import re
+import unicodedata
+from dataclasses import dataclass
+from typing import Literal, Sequence
+
+
+FOOTER_VARIANTS = (
+    "注:内容由AI生成,请谨慎参考",
+    "(注:内容由AI生成,请谨慎参考)",
+    "内容由AI生成,请谨慎参考",
+)
+CONTROL_RE = re.compile(r"[\u0000-\u001f\u007f]+")
+WHITESPACE_RE = re.compile(r"\s+")
+PUNCT_TRANSLATION = str.maketrans(
+    {
+        "：": ":",
+        "，": ",",
+        "（": "(",
+        "）": ")",
+    }
+)
+
+
+@dataclass(frozen=True)
+class PdfWord:
+    text: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@dataclass(frozen=True)
+class FooterDetection:
+    status: Literal["matched", "not_found", "unsafe_geometry"]
+    normalized_text: str | None
+    word_indexes: tuple[int, ...]
+    bbox: tuple[float, float, float, float] | None
+
+
+def normalize_footer_text(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text)
+    text = CONTROL_RE.sub("", text)
+    text = text.translate(PUNCT_TRANSLATION)
+    text = WHITESPACE_RE.sub("", text)
+    return text
+
+
+def _rectangles_overlap(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+) -> bool:
+    return not (
+        left[2] <= right[0]
+        or right[2] <= left[0]
+        or left[3] <= right[1]
+        or right[3] <= left[1]
+    )
+
+
+def detect_footer(
+    words: Sequence[PdfWord],
+    page_width: float,
+    page_height: float,
+) -> FooterDetection:
+    footer_floor = page_height * 0.80
+    indexed_words = [
+        (index, word)
+        for index, word in enumerate(words)
+        if word.y0 >= footer_floor
+    ]
+    if not indexed_words:
+        return FooterDetection("not_found", None, (), None)
+
+    clusters: list[list[tuple[int, PdfWord]]] = []
+    current = [indexed_words[0]]
+    for item in indexed_words[1:]:
+        previous_word = current[-1][1]
+        _, word = item
+        same_line = min(previous_word.y1, word.y1) > max(previous_word.y0, word.y0)
+        gap = word.x0 - previous_word.x1
+        small_gap = 0.0 <= gap <= 12.0
+        if same_line and small_gap:
+            current.append(item)
+        else:
+            clusters.append(current)
+            current = [item]
+    clusters.append(current)
+
+    overall_normalized = normalize_footer_text(
+        "".join(word.text for _, word in indexed_words)
+    )
+    if overall_normalized in FOOTER_VARIANTS and len(clusters) != 1:
+        return FooterDetection("unsafe_geometry", overall_normalized, (), None)
+
+    matches: list[tuple[list[tuple[int, PdfWord]], str]] = []
+    for cluster in clusters:
+        for start in range(len(cluster)):
+            for end in range(start + 1, len(cluster) + 1):
+                candidate = cluster[start:end]
+                normalized_text = normalize_footer_text(
+                    "".join(word.text for _, word in candidate)
+                )
+                if normalized_text in FOOTER_VARIANTS:
+                    matches.append((candidate, normalized_text))
+
+    if not matches:
+        return FooterDetection("not_found", None, (), None)
+    if len(matches) != 1:
+        return FooterDetection("unsafe_geometry", None, (), None)
+
+    cluster, normalized_text = matches[0]
+    word_indexes = tuple(index for index, _ in cluster)
+    x0 = min(word.x0 for _, word in cluster)
+    y0 = min(word.y0 for _, word in cluster)
+    x1 = max(word.x1 for _, word in cluster)
+    y1 = max(word.y1 for _, word in cluster)
+    bbox = (float(x0), float(y0), float(x1), float(y1))
+
+    if (y1 - y0) > max(36.0, page_height * 0.05):
+        return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)
+    if (x1 - x0) > page_width * 0.80:
+        return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)
+
+    expanded = (x0 - 6.0, y0 - 4.0, x1 + 6.0, y1 + 4.0)
+    for index, word in enumerate(words):
+        if index in word_indexes:
+            continue
+        if _rectangles_overlap(expanded, (word.x0, word.y0, word.x1, word.y1)):
+            return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)
+
+    return FooterDetection("matched", normalized_text, word_indexes, bbox)
