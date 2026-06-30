@@ -63,4 +63,4 @@ jobs:
         run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run public-doc e2e
-        run: uv run pytest tests/test_public_doc_e2e.py -q -m e2e_public_doc
+        run: make test-public-doc-e2e

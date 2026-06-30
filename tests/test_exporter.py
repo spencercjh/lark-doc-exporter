@@ -57,7 +57,7 @@ def test_build_render_html_includes_packaged_callout_styles(tmp_path: Path):
 
 def test_normalize_xml_for_create_drops_fetch_only_img_attrs():
     xml = (
-        '<title>Demo</title>'
+        "<title>Demo</title>"
         '<img width="1260" height="946" caption="Figure 1" name="test.jpg" '
         'href="https://example.com/auth" alt="demo" mime="image/jpeg" '
         'scale="1.000000" src="NYRpb4o9Wo5ISexpegvcMRZXnwg" token="imgtok"/>'
