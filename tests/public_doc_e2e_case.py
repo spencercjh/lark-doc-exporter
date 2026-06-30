@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -14,7 +15,8 @@ class FeaturePoint:
     pdf_forbid: tuple[str, ...] = ()
 
 
-DOC_REF = "IkCedJjFIoypyzxwXjacRSy9nBg"
+# Pinned canonical fixture. PUBLIC_DOC_E2E_REF is only for local override.
+DOC_REF = os.environ.get("PUBLIC_DOC_E2E_REF") or "IkCedJjFIoypyzxwXjacRSy9nBg"
 FILE_STEM = "public-doc-e2e"
 EXPECTED_PDF_TOTAL_IMAGES = 2
 EXPORT_ARGS = {

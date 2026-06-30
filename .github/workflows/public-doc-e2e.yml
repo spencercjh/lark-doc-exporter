@@ -21,12 +21,16 @@ concurrency:
 
 jobs:
   public-doc-e2e:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
+    env:
+      LARK_CLI_HOME_B64: ${{ secrets.LARK_CLI_HOME_B64 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Node.js
@@ -38,16 +42,26 @@ jobs:
         run: npm install -g @larksuite/cli@1.0.56
 
       - name: Restore lark-cli home
-        if: ${{ secrets.LARK_CLI_HOME_B64 != '' }}
         shell: bash
         run: |
-          printf '%s' '${{ secrets.LARK_CLI_HOME_B64 }}' | base64 -d > /tmp/lark-cli-home.tgz
+          if [[ -z "${LARK_CLI_HOME_B64:-}" ]]; then
+            echo "LARK_CLI_HOME_B64 not set; skipping restore." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$LARK_CLI_HOME_B64" | base64 -d > /tmp/lark-cli-home.tgz
           tar -xzf /tmp/lark-cli-home.tgz -C "$HOME"
 
       - name: Show lark-cli auth status
         shell: bash
         run: |
-          lark-cli auth status --json || true
+          set -o pipefail
+          lark-cli auth status --json | tee /tmp/lark-cli-auth-status.json
+          {
+            echo "### lark-cli auth status"
+            echo '```json'
+            cat /tmp/lark-cli-auth-status.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Python
         uses: actions/setup-python@v6

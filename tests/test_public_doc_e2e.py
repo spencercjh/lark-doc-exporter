@@ -139,6 +139,20 @@ def test_is_lark_cli_user_ready_rejects_missing_binary(monkeypatch):
     assert "not on PATH" in detail
 
 
+def test_is_lark_cli_user_ready_rejects_timeout(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/lark-cli")
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd=["lark-cli"], timeout=30)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    ok, detail = is_lark_cli_user_ready()
+
+    assert ok is False
+    assert "timed out" in detail
+
+
 def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
     monkeypatch.setattr(
         "test_public_doc_e2e.is_lark_cli_user_ready",
@@ -233,11 +247,15 @@ def is_lark_cli_user_ready() -> tuple[bool, str]:
     if not binary:
         return False, "`lark-cli` is not on PATH"
 
-    proc = subprocess.run(
-        ["lark-cli", "auth", "status", "--json"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [binary, "auth", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "`lark-cli auth status` timed out"
     if proc.returncode != 0:
         return False, proc.stderr.strip() or "`lark-cli auth status` failed"
 
@@ -291,10 +309,6 @@ def extract_pdf_images(pdf_path: Path) -> list[dict[str, object]]:
         document.close()
 
 
-def extract_pdf_total_images(pdf_path: Path) -> int:
-    return len(extract_pdf_images(pdf_path))
-
-
 @pytest.mark.e2e_public_doc
 def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if case.DOC_REF is None:
@@ -334,7 +348,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     markdown_text = markdown_path.read_text(encoding="utf-8")
     pdf_text = extract_pdf_text(pdf_path)
     pdf_images = extract_pdf_images(pdf_path)
-    pdf_total_images = extract_pdf_total_images(pdf_path)
+    pdf_total_images = len(pdf_images)
 
     assert pdf_total_images == case.EXPECTED_PDF_TOTAL_IMAGES
 

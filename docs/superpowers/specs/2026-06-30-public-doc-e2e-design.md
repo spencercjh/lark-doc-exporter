@@ -118,7 +118,8 @@ Recommended structure:
   - checked-in golden artifacts for this fixture
   - `result.json`
   - `markdown/<feature>.md`
-  - `pdf_text/<feature>.txt`
+  - `pdf/<feature>.txt`
+  - `pdf/<feature>_image.json` for image-bearing feature checks
 
 v1 intentionally does **not** introduce:
 
@@ -139,8 +140,9 @@ stay simple enough to understand without learning a framework.
 The configuration should include:
 
 - `DOC_REF`
-  - future public document ref
-  - `None` until Spencer provides the canonical doc
+  - canonical public document ref committed in the repo
+  - local runs may override it with `PUBLIC_DOC_E2E_REF`, but the repository
+    default stays pinned to the canonical fixture
 - `EXPORT_ARGS`
   - v1 should lock the E2E route to:
     - `formats=["markdown", "pdf"]`
@@ -158,12 +160,17 @@ The configuration should include:
 Each feature-point entry should stay deliberately “low-tech.” Support only:
 
 - `name`
-  - stable slug such as `synced_block`, `callout`, `whiteboard`,
-    `image_link_localized`
+  - stable slug such as `synced_block`, `callout`, `whiteboard`, `image`
 - `markdown_contains_snapshot`
   - snapshot file containing the markdown fragment that must appear
 - `pdf_text_contains_snapshot`
   - snapshot file containing the extracted-PDF text fragment that must appear
+- `pdf_image_snapshot`
+  - snapshot file containing the extracted-PDF image fingerprint that must
+    appear
+- `pdf_total_images_at_least`
+  - lower-bound guard for total extracted PDF images when exact per-image
+    matching is too narrow on its own
 - `markdown_forbid`
   - raw strings that must not appear in final markdown
 - `pdf_forbid`
@@ -179,7 +186,10 @@ Do not snapshot the full CLI JSON payload. Instead, extract and compare only
 stable, user-meaningful fields such as:
 
 - `ok`
+- `expanded_references`
 - `pdf_mode`
+- `pdf_renderer`
+- `localized_images`
 - `ai_footer_postprocess.status`
 
 Store that stable view in the checked-in snapshot file:
@@ -204,14 +214,19 @@ This keeps the regression signal precise while limiting noise.
 
 #### 2.3 PDF feature snapshots
 
-Do not snapshot raw PDF bytes. Instead:
+Do not snapshot raw PDF bytes. Instead, use 2 narrow snapshot forms:
 
-- read the final PDF
-- extract text
-- apply only light normalization
-- verify that each feature snapshot fragment is present
+- for text-bearing features:
+  - read the final PDF
+  - extract text
+  - apply only light normalization
+  - verify that each text snapshot fragment is present
+- for visual-only or image-heavy features:
+  - extract PDF image metadata
+  - compare a checked-in JSON fingerprint such as page / width / height /
+    extension / payload hash
 
-Allowed normalization should stay conservative:
+Allowed text normalization should stay conservative:
 
 - normalize line endings
 - collapse repeated whitespace
@@ -239,11 +254,12 @@ Examples:
 The E2E execution flow should be fixed and easy to trace:
 
 1. load `tests/public_doc_e2e_case.py`
-2. if `DOC_REF is None`, immediately `pytest.skip("public doc fixture not configured")`
-3. otherwise run one real export using the fixed v1 export arguments
+2. require `lark-cli` user-session readiness for the pinned canonical fixture
+3. run one real export using the fixed v1 export arguments
 4. validate the stable CLI result fields
-5. read final markdown and extracted final PDF text
-6. run feature-point `contains` and `forbid` checks
+5. read final markdown, extracted final PDF text, extracted PDF images, and
+   total extracted image count
+6. run feature-point `contains`, image-fingerprint, and `forbid` checks
 7. fail immediately on the first mismatch, with the feature name in the error
 
 The runtime boundary is important:
@@ -263,23 +279,19 @@ Reason:
 - it depends on a real Feishu/Lark document and live export behavior
 - it should not make the default test surface flaky or online-dependent
 
-#### 3.2 Visible skip before the public doc exists
+#### 3.2 Visible CI gating around secrets and fork PRs
 
-The CI job should be added now, even before the fixture is configured.
+The CI job should exist in the repository now that the canonical fixture is
+committed.
 
-Before `DOC_REF` is set:
+Recommended behavior:
 
-- the job still runs
-- the test entry still executes
-- the result is explicitly `skipped`
-
-This avoids a second future plumbing step. Once the public document ref is
-filled in, the same job naturally becomes a real E2E execution path.
-
-If the repository later commits a real `DOC_REF` but the CI runner still lacks
-usable `lark-cli` user-session material, the implementation must fail or skip
-that job explicitly with a clear message rather than silently pretending the
-E2E lane is active.
+- `push` to `main` runs the lane
+- `pull_request` runs only for same-repository branches, not forks, because the
+  runner needs repo secrets for the `lark-cli` home restore path
+- the secret-restore step may no-op with a visible summary message when the
+  secret is absent, but the job must then fail explicitly during auth/test
+  readiness rather than silently pretending the E2E lane is active
 
 #### 3.3 Feature-oriented failure reporting
 
@@ -314,19 +326,19 @@ When this design is implemented, validation should include:
 
 - normal repository baseline:
   - `make ci`
-- focused local execution of the new test entry while `DOC_REF` is unset:
-  - verify explicit `skip`
-- focused local execution with a configured public-doc fixture once Spencer
-  provides one:
+- focused local execution of the offline helper/unit subset:
+  - verify result normalization
+  - verify auth-readiness failure behavior
+- focused local execution with the committed public-doc fixture and ready auth:
   - verify stable result snapshot matching
   - verify markdown feature snapshots
-  - verify PDF text feature snapshots
+  - verify PDF text and image-fingerprint snapshots
   - verify forbidden-marker checks
 - explicit CI-job verification:
-  - job exists before the fixture is configured
-  - job is visibly `skipped` while `DOC_REF` is unset
-  - once `DOC_REF` is configured, the job clearly reports whether runner auth is
-    ready for a real E2E execution
+  - job is gated off for fork PRs
+  - auth restore avoids invalid workflow expressions around `secrets`
+  - same-repo runs clearly report whether runner auth is ready for a real E2E
+    execution
 
 ## Scope Boundary
 

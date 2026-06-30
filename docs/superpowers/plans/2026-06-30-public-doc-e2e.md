@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add one pure-Python public-document E2E lane for `lark-doc-exporter`, author a stable public fixture document that covers the required Feishu feature set, and wire a dedicated CI workflow that runs the lane when runner auth is available and otherwise skips explicitly.
+**Goal:** Add one pure-Python public-document E2E lane for `lark-doc-exporter`, author a stable public fixture document that covers the required Feishu feature set, and wire a dedicated CI workflow that runs the lane when runner auth is available and otherwise fails explicitly once the canonical fixture is configured.
 
-**Architecture:** Keep the implementation narrow: one case-config module, one pytest entrypoint, one checked-in snapshot tree, and one dedicated workflow. The test should compare only stable result fields plus feature-point snapshot fragments, while live Feishu/Lark dependencies are isolated behind explicit skip gates and a separate workflow instead of entering the default offline test surface.
+**Architecture:** Keep the implementation narrow: one case-config module, one pytest entrypoint, one checked-in snapshot tree, and one dedicated workflow. The test should compare only stable result fields plus feature-point snapshot fragments and PDF image fingerprints, while live Feishu/Lark dependencies are isolated behind explicit auth checks and same-repo workflow gating instead of entering the default offline test surface.
 
 **Tech Stack:** Python 3.14, `uv`, `pytest`, PyMuPDF (`fitz`), `lark-cli` 1.0.56 (`@larksuite/cli`), GitHub Actions
 
@@ -20,8 +20,10 @@
   Responsibility: stable result payload snapshot.
 - Create: `tests/e2e_snapshots/public_doc/markdown/*.md`
   Responsibility: markdown fragment snapshots per feature point.
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/*.txt`
-  Responsibility: extracted-PDF text fragment snapshots per feature point.
+- Create: `tests/e2e_snapshots/public_doc/pdf/*.txt`
+  Responsibility: extracted-PDF text fragment snapshots for text-bearing feature points.
+- Create: `tests/e2e_snapshots/public_doc/pdf/*_image.json`
+  Responsibility: extracted-PDF image fingerprint snapshots for image-bearing feature points.
 - Modify: `pyproject.toml`
   Responsibility: register the `e2e_public_doc` pytest marker.
 - Create: `.github/workflows/public-doc-e2e.yml`
@@ -85,6 +87,7 @@ Create `tests/public_doc_e2e_case.py`:
 ```python
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -93,17 +96,19 @@ class FeaturePoint:
     name: str
     markdown_contains_snapshot: str | None = None
     pdf_text_contains_snapshot: str | None = None
+    pdf_image_snapshot: str | None = None
+    pdf_total_images_at_least: int | None = None
     markdown_forbid: tuple[str, ...] = ()
     pdf_forbid: tuple[str, ...] = ()
 
-
-DOC_REF: str | None = None
+DOC_REF = os.environ.get("PUBLIC_DOC_E2E_REF") or "IkCedJjFIoypyzxwXjacRSy9nBg"
 FILE_STEM = "public-doc-e2e"
 EXPORT_ARGS = {
     "formats": ["markdown", "pdf"],
     "pdf_mode": "native",
     "file_stem": FILE_STEM,
 }
+EXPECTED_PDF_TOTAL_IMAGES = 2
 FEATURE_POINTS: tuple[FeaturePoint, ...] = ()
 ```
 
@@ -282,7 +287,7 @@ git add pyproject.toml tests/public_doc_e2e_case.py tests/test_public_doc_e2e.py
 git commit -S -s -m "test(e2e): add public doc helper scaffold"
 ```
 
-## Task 2: Add live export execution and explicit auth/doc skip gates
+## Task 2: Add live export execution and explicit auth failure handling
 
 **Files:**
 - Modify: `tests/test_public_doc_e2e.py`
@@ -391,9 +396,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if case.DOC_REF is None:
         pytest.skip("public doc fixture not configured")
 
-    auth_ready, auth_detail = is_lark_cli_user_ready()
-    if not auth_ready:
-        pytest.skip(f"lark-cli user session not configured for public doc e2e: {auth_detail}")
+    require_public_doc_auth_ready()
 
     output_dir = tmp_path / case.FILE_STEM
     exit_code = run_main(
@@ -434,7 +437,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
         assert_feature_point(feature, markdown_text, pdf_text)
 ```
 
-- [ ] **Step 4: Verify offline tests pass and the live lane skips cleanly**
+- [ ] **Step 4: Verify offline tests pass and the live lane enforces auth correctly**
 
 Run the offline portion:
 
@@ -444,13 +447,13 @@ uv run pytest tests/test_public_doc_e2e.py -q -k "not public_doc_export_e2e"
 
 Expected: PASS.
 
-Run the live marker before a real `DOC_REF` is configured:
+Run the focused auth-failure unit:
 
 ```bash
-uv run pytest tests/test_public_doc_e2e.py -q -m e2e_public_doc
+uv run pytest tests/test_public_doc_e2e.py -q -k "require_public_doc_auth_ready"
 ```
 
-Expected: `1 skipped` with `public doc fixture not configured`.
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -483,14 +486,25 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHON_VERSION: "3.14"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   public-doc-e2e:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
+    env:
+      LARK_CLI_HOME_B64: ${{ secrets.LARK_CLI_HOME_B64 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Node.js
@@ -502,21 +516,31 @@ jobs:
         run: npm install -g @larksuite/cli@1.0.56
 
       - name: Restore lark-cli home
-        if: ${{ secrets.LARK_CLI_HOME_B64 != '' }}
         shell: bash
         run: |
-          printf '%s' '${{ secrets.LARK_CLI_HOME_B64 }}' | base64 -d > /tmp/lark-cli-home.tgz
+          if [[ -z "${LARK_CLI_HOME_B64:-}" ]]; then
+            echo "LARK_CLI_HOME_B64 not set; skipping restore." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$LARK_CLI_HOME_B64" | base64 -d > /tmp/lark-cli-home.tgz
           tar -xzf /tmp/lark-cli-home.tgz -C "$HOME"
 
       - name: Show lark-cli auth status
         shell: bash
         run: |
-          lark-cli auth status --json || true
+          set -o pipefail
+          lark-cli auth status --json | tee /tmp/lark-cli-auth-status.json
+          {
+            echo "### lark-cli auth status"
+            echo '```json'
+            cat /tmp/lark-cli-auth-status.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v8.2.0
@@ -524,10 +548,10 @@ jobs:
           enable-cache: true
 
       - name: Sync dev dependencies
-        run: uv sync --python 3.14 --group dev
+        run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
 
       - name: Run public-doc e2e
-        run: uv run pytest tests/test_public_doc_e2e.py -q -m e2e_public_doc
+        run: make test-public-doc-e2e
 ```
 
 - [ ] **Step 2: Sanity-check the workflow file structure**
@@ -543,7 +567,8 @@ required = [
     "name: public-doc-e2e",
     "npm install -g @larksuite/cli@1.0.56",
     "LARK_CLI_HOME_B64",
-    "pytest tests/test_public_doc_e2e.py -q -m e2e_public_doc",
+    "persist-credentials: false",
+    "make test-public-doc-e2e",
 ]
 for needle in required:
     assert needle in workflow, needle
@@ -564,29 +589,12 @@ git commit -S -s -m "ci(e2e): add public doc workflow"
 **Files:**
 - Modify: `tests/public_doc_e2e_case.py`
 
-- [ ] **Step 1: Generate a tiny local PNG for the fixture image**
+- [ ] **Step 1: Choose one stable uploaded image for the fixture**
 
-Run:
-
-```bash
-python - <<'PY'
-import base64
-from pathlib import Path
-
-png_b64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAMgAAABQCAIAAADTD63nAAAAyUlEQVR4nO3SQQ3AIBDAsAP/nuGN"
-    "AvZoFSzZOjNnyNi/A3g1C2EWwiyEWQizEGYhzEKYhTALYRbCLIRZCLMQZiHMQpiFMAthFsIshFkI"
-    "sxBmIcxCmIUwC2EWwiyEWQizEGYhzEKYhTALYRbCLIRZCLMQZiHMQpiFMAthFsIshFkIsxBmIcxC"
-    "mIUwC2EWwiyEWQizEGYhzEKYhTALYRbCLIRZCLMQZiHMQpiFMAthFsIshFkIs9B6AQ3zB56M1wAA"
-    "AABJRU5ErkJggg=="
-)
-path = Path("/tmp/public-doc-e2e-image.png")
-path.write_bytes(base64.b64decode(png_b64))
-print(path)
-PY
-```
-
-Expected: prints `/tmp/public-doc-e2e-image.png`.
+Implementation note: the final committed fixture does **not** rely on the
+temporary base64-PNG bootstrap from the original draft. Use one stable uploaded
+image inside the canonical public doc and keep that asset unchanged so the
+markdown localization output and PDF image fingerprint remain stable.
 
 - [ ] **Step 2: Create the base document content**
 
@@ -639,20 +647,11 @@ Use the returned document URL and complete these exact one-time edits:
 - insert that synced block again under `Synced Block Reference Two`
 - keep the callout block as a real Feishu highlighter/callout block
 - update the blank whiteboard so it contains the label `PUBLIC E2E WHITEBOARD`
-- insert `/tmp/public-doc-e2e-image.png` after the `Image` section caption
+- insert the stable uploaded fixture image after the `Image` section caption
 
-Use these commands for the non-text assets:
-
-```bash
-DOC_REF="$(cat /tmp/public-doc-e2e-doc-ref.txt)"
-lark-cli docs +media-insert \
-  --as user \
-  --doc "$DOC_REF" \
-  --file /tmp/public-doc-e2e-image.png \
-  --selection-with-ellipsis 'Image...公开 E2E 图片说明。' \
-  --caption '公开 E2E 图片说明。' \
-  --json
-```
+The exact upload path is not part of the checked-in contract; the durable
+contract is the final authored public doc plus the committed markdown / PDF
+snapshots captured from it.
 
 After the blank whiteboard exists, fetch the whiteboard token from the document XML and update it:
 
@@ -729,6 +728,7 @@ path = Path("tests/public_doc_e2e_case.py")
 path.write_text(
     f'''from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -737,12 +737,15 @@ class FeaturePoint:
     name: str
     markdown_contains_snapshot: str | None = None
     pdf_text_contains_snapshot: str | None = None
+    pdf_image_snapshot: str | None = None
+    pdf_total_images_at_least: int | None = None
     markdown_forbid: tuple[str, ...] = ()
     pdf_forbid: tuple[str, ...] = ()
 
 
-DOC_REF = "{os.environ["DOC_REF"]}"
+DOC_REF = os.environ.get("PUBLIC_DOC_E2E_REF") or "{os.environ["DOC_REF"]}"
 FILE_STEM = "public-doc-e2e"
+EXPECTED_PDF_TOTAL_IMAGES = 2
 EXPORT_ARGS = {{
     "formats": ["markdown", "pdf"],
     "pdf_mode": "native",
@@ -750,43 +753,41 @@ EXPORT_ARGS = {{
 }}
 FEATURE_POINTS = (
     FeaturePoint(
-        name="markdown_table",
-        markdown_contains_snapshot="markdown/table.md",
-        pdf_text_contains_snapshot="pdf_text/table.txt",
+        name="synced_block",
+        markdown_contains_snapshot="markdown/synced_block.md",
+        pdf_text_contains_snapshot="pdf/synced_block.txt",
+        markdown_forbid=("<synced_reference", "<synced-source"),
+        pdf_forbid=("不支持导出查看",),
     ),
     FeaturePoint(
-        name="markdown_quote",
+        name="markdown_table",
+        markdown_contains_snapshot="markdown/table.md",
+        pdf_text_contains_snapshot="pdf/table.txt",
+    ),
+    FeaturePoint(
+        name="markdown_blockquote",
         markdown_contains_snapshot="markdown/blockquote.md",
-        pdf_text_contains_snapshot="pdf_text/blockquote.txt",
+        pdf_text_contains_snapshot="pdf/blockquote.txt",
     ),
     FeaturePoint(
         name="callout",
         markdown_contains_snapshot="markdown/callout.md",
-        pdf_text_contains_snapshot="pdf_text/callout.txt",
+        pdf_text_contains_snapshot="pdf/callout.txt",
         markdown_forbid=("<callout",),
-    ),
-    FeaturePoint(
-        name="synced_block_reference_one",
-        markdown_contains_snapshot="markdown/synced_block_reference_one.md",
-        pdf_text_contains_snapshot="pdf_text/synced_block_reference_one.txt",
-        markdown_forbid=("<synced_reference", "<synced-source"),
-    ),
-    FeaturePoint(
-        name="synced_block_reference_two",
-        markdown_contains_snapshot="markdown/synced_block_reference_two.md",
-        pdf_text_contains_snapshot="pdf_text/synced_block_reference_two.txt",
-        markdown_forbid=("<synced_reference", "<synced-source"),
     ),
     FeaturePoint(
         name="whiteboard",
         markdown_contains_snapshot="markdown/whiteboard.md",
-        pdf_forbid=("<whiteboard",),
+        pdf_image_snapshot="pdf/whiteboard_image.json",
+        markdown_forbid=("<whiteboard",),
     ),
     FeaturePoint(
         name="image",
         markdown_contains_snapshot="markdown/image.md",
-        pdf_text_contains_snapshot="pdf_text/image.txt",
+        pdf_image_snapshot="pdf/image_image.json",
+        pdf_total_images_at_least=2,
         markdown_forbid=("authcode/?code=",),
+        pdf_forbid=("加载失败",),
     ),
 )
 ''',
@@ -809,16 +810,15 @@ git commit -S -s -m "test(e2e): lock public doc fixture case"
 - Create: `tests/e2e_snapshots/public_doc/markdown/table.md`
 - Create: `tests/e2e_snapshots/public_doc/markdown/blockquote.md`
 - Create: `tests/e2e_snapshots/public_doc/markdown/callout.md`
-- Create: `tests/e2e_snapshots/public_doc/markdown/synced_block_reference_one.md`
-- Create: `tests/e2e_snapshots/public_doc/markdown/synced_block_reference_two.md`
+- Create: `tests/e2e_snapshots/public_doc/markdown/synced_block.md`
 - Create: `tests/e2e_snapshots/public_doc/markdown/whiteboard.md`
 - Create: `tests/e2e_snapshots/public_doc/markdown/image.md`
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/table.txt`
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/blockquote.txt`
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/callout.txt`
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/synced_block_reference_one.txt`
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/synced_block_reference_two.txt`
-- Create: `tests/e2e_snapshots/public_doc/pdf_text/image.txt`
+- Create: `tests/e2e_snapshots/public_doc/pdf/table.txt`
+- Create: `tests/e2e_snapshots/public_doc/pdf/blockquote.txt`
+- Create: `tests/e2e_snapshots/public_doc/pdf/callout.txt`
+- Create: `tests/e2e_snapshots/public_doc/pdf/synced_block.txt`
+- Create: `tests/e2e_snapshots/public_doc/pdf/image_image.json`
+- Create: `tests/e2e_snapshots/public_doc/pdf/whiteboard_image.json`
 
 - [ ] **Step 1: Run one real local export against the new fixture**
 
@@ -844,10 +844,11 @@ Create `tests/e2e_snapshots/public_doc/result.json`:
 ```json
 {
   "ok": true,
+  "expanded_references": 2,
   "pdf_mode": "native",
   "pdf_renderer": "feishu-native",
-  "localized_images": 2,
-  "ai_footer_postprocess.status": "not_found"
+  "localized_images": 1,
+  "ai_footer_postprocess.status": "removed"
 }
 ```
 
@@ -858,8 +859,7 @@ Create:
 - `tests/e2e_snapshots/public_doc/markdown/table.md`
 - `tests/e2e_snapshots/public_doc/markdown/blockquote.md`
 - `tests/e2e_snapshots/public_doc/markdown/callout.md`
-- `tests/e2e_snapshots/public_doc/markdown/synced_block_reference_one.md`
-- `tests/e2e_snapshots/public_doc/markdown/synced_block_reference_two.md`
+- `tests/e2e_snapshots/public_doc/markdown/synced_block.md`
 - `tests/e2e_snapshots/public_doc/markdown/whiteboard.md`
 - `tests/e2e_snapshots/public_doc/markdown/image.md`
 
@@ -868,12 +868,11 @@ Each file must contain the exact fragment copied from `/tmp/public-doc-e2e-out/p
 - `table.md`: the `Markdown Table` heading plus the two-row table
 - `blockquote.md`: the `Markdown Quote` heading plus the quoted sentence
 - `callout.md`: the `Callout` heading plus the normalized callout block
-- `synced_block_reference_one.md`: the first synced-reference heading plus the expanded synced text
-- `synced_block_reference_two.md`: the second synced-reference heading plus the expanded synced text
-- `whiteboard.md`: the `Whiteboard` heading plus the localized markdown image link / caption
-- `image.md`: the `Image` heading plus the localized markdown image link / caption
+- `synced_block.md`: one canonical expanded synced-block paragraph
+- `whiteboard.md`: the normalized mermaid block emitted for the whiteboard section
+- `image.md`: the localized markdown image link
 
-- [ ] **Step 4: Create the PDF text fragment snapshots from the real export**
+- [ ] **Step 4: Create the PDF text and image snapshots from the real export**
 
 Extract the final PDF text once:
 
@@ -894,16 +893,19 @@ PY
 
 Then create:
 
-- `tests/e2e_snapshots/public_doc/pdf_text/table.txt`
-- `tests/e2e_snapshots/public_doc/pdf_text/blockquote.txt`
-- `tests/e2e_snapshots/public_doc/pdf_text/callout.txt`
-- `tests/e2e_snapshots/public_doc/pdf_text/synced_block_reference_one.txt`
-- `tests/e2e_snapshots/public_doc/pdf_text/synced_block_reference_two.txt`
-- `tests/e2e_snapshots/public_doc/pdf_text/image.txt`
+- `tests/e2e_snapshots/public_doc/pdf/table.txt`
+- `tests/e2e_snapshots/public_doc/pdf/blockquote.txt`
+- `tests/e2e_snapshots/public_doc/pdf/callout.txt`
+- `tests/e2e_snapshots/public_doc/pdf/synced_block.txt`
 
 Each file must contain the exact text fragment copied from `/tmp/public-doc-e2e-out/public-doc-e2e.txt` that proves the feature is present in the final PDF text extraction.
 
-Do **not** create a whiteboard PDF text snapshot unless the exported PDF text actually contains a stable whiteboard-specific textual marker. For whiteboard, markdown snapshot plus `localized_images == 2` is enough in v1.
+Then extract PDF image fingerprints with the same PyMuPDF image-extraction path used by the test helper and capture:
+
+- `tests/e2e_snapshots/public_doc/pdf/image_image.json`
+- `tests/e2e_snapshots/public_doc/pdf/whiteboard_image.json`
+
+Each image snapshot should contain the stable `page`, `width`, `height`, `ext`, and `sha256` fields for the expected extracted image object.
 
 - [ ] **Step 5: Run the live E2E lane and verify it passes**
 
@@ -962,7 +964,7 @@ Public-doc E2E implementation is ready for review. Please review:
 - public fixture case/config
 - snapshot coverage
 - dedicated workflow
-- live/skip gating in tests
+- live/auth gating in tests
 ```
 
 - [ ] **Step 3: Commit any review-driven follow-ups**
