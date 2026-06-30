@@ -60,6 +60,25 @@ def _rectangles_overlap(
     )
 
 
+def _words_share_line(left: PdfWord, right: PdfWord) -> bool:
+    left_height = left.y1 - left.y0
+    right_height = right.y1 - right.y0
+    overlap = min(left.y1, right.y1) - max(left.y0, right.y0)
+    if overlap <= 0.0:
+        return False
+
+    min_height = min(left_height, right_height)
+    if min_height <= 0.0:
+        return False
+
+    overlap_ratio = overlap / min_height
+    return (
+        overlap_ratio >= 0.8
+        and abs(left.y0 - right.y0) <= 4.0
+        and abs(left.y1 - right.y1) <= 4.0
+    )
+
+
 def detect_footer(
     words: Sequence[PdfWord],
     page_width: float,
@@ -79,7 +98,7 @@ def detect_footer(
     for item in indexed_words[1:]:
         previous_word = current[-1][1]
         _, word = item
-        same_line = min(previous_word.y1, word.y1) > max(previous_word.y0, word.y0)
+        same_line = _words_share_line(previous_word, word)
         gap = word.x0 - previous_word.x1
         small_gap = 0.0 <= gap <= 12.0
         if same_line and small_gap:

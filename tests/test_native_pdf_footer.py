@@ -54,6 +54,18 @@ def test_detect_footer_returns_unsafe_geometry_for_split_clusters():
     assert detection.normalized_text == "(注:内容由AI生成,请谨慎参考)"
 
 
+def test_detect_footer_returns_unsafe_geometry_for_stacked_two_line_fragments():
+    words = [
+        PdfWord("(注：内容由AI", 24, 792, 136, 806),
+        PdfWord("生成，请谨慎参考）", 24, 804, 138, 818),
+    ]
+
+    detection = detect_footer(words, page_width=595.0, page_height=842.0)
+
+    assert detection.status == "unsafe_geometry"
+    assert detection.normalized_text == "(注:内容由AI生成,请谨慎参考)"
+
+
 def test_detect_footer_returns_unsafe_geometry_for_paragraph_like_width():
     words = [
         PdfWord("(注：内容由AI生成，请谨慎参考）", 24, 792, 540, 806),
