@@ -145,8 +145,6 @@ The configuration should include:
   - v1 should lock the E2E route to:
     - `formats=["markdown", "pdf"]`
     - `pdf_mode="native"`
-- `EXPECTED_RESULT`
-  - stable CLI result fields to compare exactly
 - `FEATURE_POINTS`
   - one list entry per canonical feature under test
   - for v1, the list is fixed to:
@@ -183,6 +181,10 @@ stable, user-meaningful fields such as:
 - `ok`
 - `pdf_mode`
 - `ai_footer_postprocess.status`
+
+Store that stable view in the checked-in snapshot file:
+
+- `tests/e2e_snapshots/public_doc/result.json`
 
 Do not snapshot:
 
