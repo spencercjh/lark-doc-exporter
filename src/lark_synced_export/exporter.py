@@ -13,10 +13,8 @@ from pathlib import Path
 from .callout_markdown import normalize_markdown_callouts_file
 from .mention_markdown import normalize_markdown_user_mentions_file
 from .markdown_runtime import render_markdown_body
-from .native_pdf_footer import postprocess_native_pdf
+from .native_pdf_footer import FAILURE_STATUSES, postprocess_native_pdf
 from .pdf_runtime import render_html_to_pdf
-
-FAILURE_STATUSES = {"detection_failed", "unsafe_geometry", "mask_failed"}
 
 THEMES_DIR = Path(__file__).with_name("themes")
 

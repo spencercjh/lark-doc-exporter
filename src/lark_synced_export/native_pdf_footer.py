@@ -10,6 +10,7 @@ from typing import Literal, Sequence
 import fitz
 
 
+FAILURE_STATUSES = {"detection_failed", "unsafe_geometry", "mask_failed"}
 FOOTER_VARIANTS = (
     "注:内容由AI生成,请谨慎参考",
     "(注:内容由AI生成,请谨慎参考)",
