@@ -836,6 +836,7 @@ Inside `export_document()`, add the native-mode bookkeeping:
     outputs: dict[str, str] = {}
     warnings: list[str] = []
     ai_footer_postprocess: dict | None = None
+    localized_image_count = 0
 ```
 
 Replace the current temp-doc export block and PDF block with:
