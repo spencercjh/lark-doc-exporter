@@ -98,19 +98,25 @@ def _words_share_line(left: PdfWord, right: PdfWord) -> bool:
     )
 
 
-def detect_footer(
-    words: Sequence[PdfWord],
-    page_width: float,
-    page_height: float,
-) -> FooterDetection:
-    footer_floor = page_height * 0.80
-    indexed_words = [
-        (index, word)
-        for index, word in enumerate(words)
-        if word.y0 >= footer_floor
-    ]
+def _cluster_bbox(
+    cluster: Sequence[tuple[int, PdfWord]],
+) -> tuple[float, float, float, float]:
+    x0 = min(word.x0 for _, word in cluster)
+    y0 = min(word.y0 for _, word in cluster)
+    x1 = max(word.x1 for _, word in cluster)
+    y1 = max(word.y1 for _, word in cluster)
+    return (float(x0), float(y0), float(x1), float(y1))
+
+
+def _cluster_text(cluster: Sequence[tuple[int, PdfWord]]) -> str:
+    return normalize_footer_text("".join(word.text for _, word in cluster))
+
+
+def _build_clusters(
+    indexed_words: Sequence[tuple[int, PdfWord]],
+) -> list[list[tuple[int, PdfWord]]]:
     if not indexed_words:
-        return FooterDetection("not_found", None, (), None)
+        return []
 
     clusters: list[list[tuple[int, PdfWord]]] = []
     current = [indexed_words[0]]
@@ -126,36 +132,62 @@ def detect_footer(
             clusters.append(current)
             current = [item]
     clusters.append(current)
+    return clusters
 
-    overall_normalized = normalize_footer_text(
-        "".join(word.text for _, word in indexed_words)
-    )
-    if overall_normalized in FOOTER_VARIANTS and len(clusters) != 1:
-        return FooterDetection("unsafe_geometry", overall_normalized, (), None)
+
+def _find_split_cluster_variant(
+    clusters: Sequence[Sequence[tuple[int, PdfWord]]],
+) -> str | None:
+    for start in range(len(clusters)):
+        combined: list[tuple[int, PdfWord]] = []
+        for end in range(start, len(clusters)):
+            combined.extend(clusters[end])
+            if end == start:
+                continue
+
+            normalized_text = _cluster_text(combined)
+            if normalized_text in FOOTER_VARIANTS:
+                return normalized_text
+    return None
+
+
+def _match_sort_key(match: tuple[Sequence[tuple[int, PdfWord]], str]) -> tuple[float, float, float, int]:
+    cluster, _normalized_text = match
+    x0, y0, x1, y1 = _cluster_bbox(cluster)
+    return (-y0, -y1, x1 - x0, len(cluster))
+
+
+def detect_footer(
+    words: Sequence[PdfWord],
+    page_width: float,
+    page_height: float,
+) -> FooterDetection:
+    indexed_words = list(enumerate(words))
+    if not indexed_words:
+        return FooterDetection("not_found", None, (), None)
+
+    clusters = _build_clusters(indexed_words)
 
     matches: list[tuple[list[tuple[int, PdfWord]], str]] = []
     for cluster in clusters:
         for start in range(len(cluster)):
             for end in range(start + 1, len(cluster) + 1):
                 candidate = cluster[start:end]
-                normalized_text = normalize_footer_text(
-                    "".join(word.text for _, word in candidate)
-                )
+                normalized_text = _cluster_text(candidate)
                 if normalized_text in FOOTER_VARIANTS:
                     matches.append((candidate, normalized_text))
 
     if not matches:
+        split_variant = _find_split_cluster_variant(clusters)
+        if split_variant is not None:
+            return FooterDetection("unsafe_geometry", split_variant, (), None)
         return FooterDetection("not_found", None, (), None)
-    if len(matches) != 1:
-        return FooterDetection("unsafe_geometry", None, (), None)
 
+    matches.sort(key=_match_sort_key)
     cluster, normalized_text = matches[0]
     word_indexes = tuple(index for index, _ in cluster)
-    x0 = min(word.x0 for _, word in cluster)
-    y0 = min(word.y0 for _, word in cluster)
-    x1 = max(word.x1 for _, word in cluster)
-    y1 = max(word.y1 for _, word in cluster)
-    bbox = (float(x0), float(y0), float(x1), float(y1))
+    x0, y0, x1, y1 = _cluster_bbox(cluster)
+    bbox = (x0, y0, x1, y1)
 
     if (y1 - y0) > max(36.0, page_height * 0.05):
         return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)

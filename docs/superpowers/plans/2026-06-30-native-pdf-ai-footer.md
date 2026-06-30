@@ -73,17 +73,41 @@ def test_detect_footer_matches_single_bottom_cluster():
     )
 
 
-def test_detect_footer_returns_not_found_outside_footer_zone():
+def test_detect_footer_matches_footer_anywhere_on_last_page():
     words = [
-        PdfWord("(注：内容由", 24, 640, 116, 654),
-        PdfWord("AI", 120, 640, 138, 654),
-        PdfWord("生成，请谨慎参考）", 142, 640, 258, 654),
+        PdfWord("(注：内容由", 24, 193.26, 116, 207.26),
+        PdfWord("AI", 120, 193.26, 138, 207.26),
+        PdfWord("生成，请谨慎参考）", 142, 193.26, 258, 207.26),
     ]
 
-    detection = detect_footer(words, page_width=595.0, page_height=842.0)
+    detection = detect_footer(words, page_width=595.0, page_height=841.92)
 
-    assert detection.status == "not_found"
-    assert detection.bbox is None
+    assert detection == FooterDetection(
+        status="matched",
+        normalized_text="(注:内容由AI生成,请谨慎参考)",
+        word_indexes=(0, 1, 2),
+        bbox=(24.0, 193.26, 258.0, 207.26),
+    )
+
+
+def test_detect_footer_prefers_lowest_whitelist_match_on_last_page():
+    words = [
+        PdfWord("(注：内容由", 24, 193.26, 116, 207.26),
+        PdfWord("AI", 120, 193.26, 138, 207.26),
+        PdfWord("生成，请谨慎参考）", 142, 193.26, 258, 207.26),
+        PdfWord("(注：内容由", 24, 792, 116, 806),
+        PdfWord("AI", 120, 792, 138, 806),
+        PdfWord("生成，请谨慎参考）", 142, 792, 258, 806),
+    ]
+
+    detection = detect_footer(words, page_width=595.0, page_height=841.92)
+
+    assert detection == FooterDetection(
+        status="matched",
+        normalized_text="(注:内容由AI生成,请谨慎参考)",
+        word_indexes=(3, 4, 5),
+        bbox=(24.0, 792.0, 258.0, 806.0),
+    )
 
 
 def test_detect_footer_returns_unsafe_geometry_for_split_clusters():
@@ -205,12 +229,7 @@ def detect_footer(
     page_width: float,
     page_height: float,
 ) -> FooterDetection:
-    footer_floor = page_height * 0.80
-    indexed_words = [
-        (index, word)
-        for index, word in enumerate(words)
-        if word.y0 >= footer_floor
-    ]
+    indexed_words = list(enumerate(words))
     if not indexed_words:
         return FooterDetection("not_found", None, (), None)
 
@@ -228,25 +247,40 @@ def detect_footer(
             current = [item]
     clusters.append(current)
 
-    overall_normalized = normalize_footer_text(
-        "".join(word.text for _, word in indexed_words)
-    )
-    if overall_normalized in FOOTER_VARIANTS and len(clusters) != 1:
-        return FooterDetection("unsafe_geometry", overall_normalized, (), None)
-
     matches: list[tuple[list[tuple[int, PdfWord]], str]] = []
     for cluster in clusters:
-        normalized_text = normalize_footer_text(
-            "".join(word.text for _, word in cluster)
-        )
-        if normalized_text in FOOTER_VARIANTS:
-            matches.append((cluster, normalized_text))
+        for start in range(len(cluster)):
+            for end in range(start + 1, len(cluster) + 1):
+                candidate = cluster[start:end]
+                normalized_text = normalize_footer_text(
+                    "".join(word.text for _, word in candidate)
+                )
+                if normalized_text in FOOTER_VARIANTS:
+                    matches.append((candidate, normalized_text))
 
     if not matches:
-        return FooterDetection("not_found", None, (), None)
-    if len(matches) != 1:
-        return FooterDetection("unsafe_geometry", None, (), None)
+        for start in range(len(clusters)):
+            combined: list[tuple[int, PdfWord]] = []
+            for end in range(start, len(clusters)):
+                combined.extend(clusters[end])
+                if end == start:
+                    continue
 
+                normalized_text = normalize_footer_text(
+                    "".join(word.text for _, word in combined)
+                )
+                if normalized_text in FOOTER_VARIANTS:
+                    return FooterDetection("unsafe_geometry", normalized_text, (), None)
+        return FooterDetection("not_found", None, (), None)
+
+    matches.sort(
+        key=lambda match: (
+            -min(word.y0 for _, word in match[0]),
+            -max(word.y1 for _, word in match[0]),
+            max(word.x1 for _, word in match[0]) - min(word.x0 for _, word in match[0]),
+            len(match[0]),
+        )
+    )
     cluster, normalized_text = matches[0]
     word_indexes = tuple(index for index, _ in cluster)
     x0 = min(word.x0 for _, word in cluster)
@@ -280,7 +314,8 @@ Run:
 uv run pytest tests/test_native_pdf_footer.py -q
 ```
 
-Expected: PASS with `6 passed`.
+Expected: PASS, including the new mid-page-footer and lowest-match-selection
+coverage.
 
 - [ ] **Step 5: Commit the pure-rule slice**
 

@@ -179,9 +179,14 @@ Cluster rules:
 - if matched pieces split into multiple clearly separate clusters, stop and
   treat the result as unsafe
 
-Footer-zone requirement:
+Footer-position rule:
 
-- the candidate cluster must lie within the bottom `20%` of the last page
+- scan the whole **last page** for whitelist-matched single-line clusters
+- if more than one whitelist-matched cluster exists, choose the one with the
+  greatest `y` value (closest to the bottom of the last page)
+- do **not** require an absolute bottom-band threshold; the real
+  `BVXXwgzbZivjQZkr7jmcsGcinGh` sample proves the injected footer can sit well
+  above the bottom `20%`
 
 Footer-shape guardrails:
 
@@ -201,7 +206,7 @@ Safety stop conditions:
 - expanded mask overlaps any non-footer text bbox
 - only coarse paragraph/block geometry is available
 - matched fragments do not form one clear footer cluster
-- candidate cluster is outside the footer zone
+- footer text exists only by spanning multiple clearly separate clusters
 - candidate cluster is multi-line / paragraph-like
 
 Any of those conditions must stop masking and surface `unsafe_geometry`.
@@ -274,7 +279,7 @@ These do not need real PDFs. They should lock:
 
 - footer text normalization
 - whitelist match vs non-match behavior
-- bottom-20%-zone gating
+- lowest-matched-cluster selection
 - split-cluster rejection
 - overlap rejection
 
@@ -320,7 +325,7 @@ Keep a small manual acceptance set:
   - `CBecwNJO7ieT1BkNIXeclJyCnPh`
   - expected: `not_found`
 - anti-footgun sample:
-  - last-page正文 close to the footer zone
+  - last-page正文 overlaps the candidate footer mask
   - expected: `unsafe_geometry` + warning
 
 If a real anti-footgun sample is not yet available, v1 may start with a
