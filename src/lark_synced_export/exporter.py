@@ -13,7 +13,10 @@ from pathlib import Path
 from .callout_markdown import normalize_markdown_callouts_file
 from .mention_markdown import normalize_markdown_user_mentions_file
 from .markdown_runtime import render_markdown_body
+from .native_pdf_footer import postprocess_native_pdf
 from .pdf_runtime import render_html_to_pdf
+
+FAILURE_STATUSES = {"detection_failed", "unsafe_geometry", "mask_failed"}
 
 THEMES_DIR = Path(__file__).with_name("themes")
 
@@ -404,7 +407,7 @@ def export_doc(
     export_cwd = output_dir.parent
     export_leaf = output_dir.name
     results: dict[str, str] = {}
-    suffix_map = {"markdown": "md"}
+    suffix_map = {"markdown": "md", "pdf": "pdf"}
 
     for fmt in formats:
         file_name = f"{file_stem}.{suffix_map[fmt]}"
@@ -435,6 +438,11 @@ def export_doc(
 def export_markdown(temp_doc_token: str, output_dir: Path, file_stem: str) -> Path:
     result = export_doc(temp_doc_token, output_dir, file_stem, formats=["markdown"])
     return Path(result["markdown"])
+
+
+def export_native_pdf(temp_doc_token: str, output_dir: Path, file_stem: str) -> Path:
+    result = export_doc(temp_doc_token, output_dir, file_stem, formats=["pdf"])
+    return Path(result["pdf"])
 
 
 def delete_temp_doc(temp_doc_token: str) -> None:
@@ -539,6 +547,7 @@ def export_document(
     keep_temp_doc: bool,
     theme_name: str,
     override_css: Path | None,
+    pdf_mode: str = "rendered",
 ) -> dict:
     if override_css and not override_css.is_file():
         raise FileNotFoundError(f"override CSS not found: {override_css}")
@@ -551,6 +560,8 @@ def export_document(
     final_stem = file_stem or slugify_filename(temp_title)
 
     outputs: dict[str, str] = {}
+    warnings: list[str] = []
+    ai_footer_postprocess: dict | None = None
     localized_image_count = 0
     theme_css_path: Path | None = None
 
@@ -558,46 +569,88 @@ def export_document(
         stage_dir = Path(tmpdir)
         temp_doc_token, temp_doc_url = create_temp_doc(normalized_xml, stage_dir)
         try:
-            raw_markdown_path = export_markdown(
-                temp_doc_token, stage_dir, f"{final_stem}.raw"
+            needs_markdown_artifacts = "markdown" in formats or (
+                "pdf" in formats and pdf_mode == "rendered"
             )
+            localized_markdown_path: Path | None = None
+
+            if needs_markdown_artifacts:
+                raw_markdown_path = export_markdown(
+                    temp_doc_token, stage_dir, f"{final_stem}.raw"
+                )
+                render_root = output_dir if "markdown" in formats else stage_dir
+                localized_markdown_path = render_root / f"{final_stem}.md"
+                assets_dir = render_root / "images"
+                localized_image_count = localize_markdown_images(
+                    raw_markdown_path, localized_markdown_path, assets_dir
+                )
+                normalize_markdown_user_mentions_file(localized_markdown_path)
+                normalize_markdown_callouts_file(localized_markdown_path)
+
+                if "markdown" in formats:
+                    outputs["markdown"] = str(localized_markdown_path)
+
+            if "pdf" in formats:
+                output_pdf = output_dir / f"{final_stem}.pdf"
+                if pdf_mode == "rendered":
+                    assert localized_markdown_path is not None
+                    theme_css_path = resolve_theme_css(theme_name)
+                    body_html = stage_dir / "body.html"
+                    render_html = stage_dir / "render.html"
+                    render_markdown_body(localized_markdown_path, body_html)
+                    build_render_html(
+                        body_html, render_html, temp_title, theme_css_path, override_css
+                    )
+                    render_html_to_pdf(render_html, output_pdf)
+                    outputs["pdf"] = str(output_pdf)
+                else:
+                    raw_native_pdf = export_native_pdf(
+                        temp_doc_token, stage_dir, f"{final_stem}.native-raw"
+                    )
+                    preserved_raw_pdf = output_dir / f"{final_stem}.native-raw.pdf"
+                    if output_pdf.exists():
+                        output_pdf.unlink()
+                    if preserved_raw_pdf.exists():
+                        preserved_raw_pdf.unlink()
+                    footer_result = postprocess_native_pdf(
+                        raw_native_pdf, output_pdf, preserved_raw_pdf
+                    )
+                    ai_footer_postprocess = {
+                        "status": footer_result.status,
+                        "raw_pdf_path": footer_result.raw_pdf_path,
+                        "warning": footer_result.warning,
+                    }
+                    if footer_result.warning:
+                        warnings.append(footer_result.warning)
+                    if footer_result.final_pdf_path:
+                        outputs["pdf"] = footer_result.final_pdf_path
         finally:
             if not keep_temp_doc:
                 delete_temp_doc(temp_doc_token)
 
-        render_root = output_dir if "markdown" in formats else stage_dir
-        localized_markdown_path = render_root / f"{final_stem}.md"
-        assets_dir = render_root / "images"
-        localized_image_count = localize_markdown_images(
-            raw_markdown_path, localized_markdown_path, assets_dir
-        )
-        normalize_markdown_user_mentions_file(localized_markdown_path)
-        normalize_markdown_callouts_file(localized_markdown_path)
-
-        if "markdown" in formats:
-            outputs["markdown"] = str(localized_markdown_path)
-
-        if "pdf" in formats:
-            theme_css_path = resolve_theme_css(theme_name)
-            body_html = stage_dir / "body.html"
-            render_html = stage_dir / "render.html"
-            output_pdf = output_dir / f"{final_stem}.pdf"
-            render_markdown_body(localized_markdown_path, body_html)
-            build_render_html(
-                body_html, render_html, temp_title, theme_css_path, override_css
-            )
-            render_html_to_pdf(render_html, output_pdf)
-            outputs["pdf"] = str(output_pdf)
+    native_failure = (
+        "pdf" in formats
+        and pdf_mode == "native"
+        and ai_footer_postprocess is not None
+        and ai_footer_postprocess["status"] in FAILURE_STATUSES
+    )
 
     return {
-        "ok": True,
+        "ok": not native_failure,
         "doc": doc_ref,
         "expanded_references": expanded_count,
         "temp_doc_token": temp_doc_token,
         "temp_doc_deleted": not keep_temp_doc,
         "temp_doc_url": temp_doc_url,
         "localized_images": localized_image_count,
-        "theme": theme_name if "pdf" in formats else None,
+        "theme": theme_name if "pdf" in formats and pdf_mode == "rendered" else None,
+        "pdf_mode": pdf_mode if "pdf" in formats else None,
+        "ai_footer_postprocess": ai_footer_postprocess,
+        "warnings": warnings,
         "outputs": outputs,
-        "pdf_renderer": "local-chromium" if "pdf" in formats else None,
+        "pdf_renderer": (
+            "feishu-native"
+            if "pdf" in formats and pdf_mode == "native"
+            else "local-chromium" if "pdf" in formats else None
+        ),
     }
