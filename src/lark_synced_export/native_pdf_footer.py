@@ -151,7 +151,9 @@ def _find_split_cluster_variant(
     return None
 
 
-def _match_sort_key(match: tuple[Sequence[tuple[int, PdfWord]], str]) -> tuple[float, float, float, int]:
+def _match_sort_key(
+    match: tuple[Sequence[tuple[int, PdfWord]], str],
+) -> tuple[float, float, float, int]:
     cluster, _normalized_text = match
     x0, y0, x1, y1 = _cluster_bbox(cluster)
     return (-y0, -y1, x1 - x0, len(cluster))
@@ -199,7 +201,9 @@ def detect_footer(
         if index in word_indexes:
             continue
         if _rectangles_overlap(expanded, (word.x0, word.y0, word.x1, word.y1)):
-            return FooterDetection("unsafe_geometry", normalized_text, word_indexes, bbox)
+            return FooterDetection(
+                "unsafe_geometry", normalized_text, word_indexes, bbox
+            )
 
     return FooterDetection("matched", normalized_text, word_indexes, bbox)
 

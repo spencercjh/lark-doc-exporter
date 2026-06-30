@@ -312,9 +312,7 @@ def test_export_document_normalizes_user_mentions_before_render(
     assert capture["render_input"] == f"{normalized}\n"
 
 
-def test_export_document_native_not_found_sets_pdf_payload(
-    monkeypatch, tmp_path: Path
-):
+def test_export_document_native_not_found_sets_pdf_payload(monkeypatch, tmp_path: Path):
     stage_dir = tmp_path / "stage"
     stage_dir.mkdir()
     raw_native_pdf = stage_dir / "demo.native-raw.pdf"

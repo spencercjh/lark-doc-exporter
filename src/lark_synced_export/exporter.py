@@ -649,6 +649,8 @@ def export_document(
         "pdf_renderer": (
             "feishu-native"
             if "pdf" in formats and pdf_mode == "native"
-            else "local-chromium" if "pdf" in formats else None
+            else "local-chromium"
+            if "pdf" in formats
+            else None
         ),
     }
