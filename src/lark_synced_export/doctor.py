@@ -12,6 +12,7 @@ class DoctorCheck:
     name: str
     ok: bool
     detail: str
+    required: bool = True
 
 
 def check_lark_cli() -> DoctorCheck:
@@ -45,12 +46,19 @@ def check_lark_cli() -> DoctorCheck:
 
 def check_pdf_runtime() -> DoctorCheck:
     ok, detail = check_chromium_ready()
-    return DoctorCheck(name="chromium", ok=ok, detail=detail)
+    if ok:
+        detail = f"{detail} This check only applies to rendered PDF output."
+    else:
+        detail = (
+            "Chromium is not ready for rendered PDF output. Native PDF does not "
+            f"require Chromium. {detail}"
+        )
+    return DoctorCheck(name="chromium", ok=ok, detail=detail, required=False)
 
 
 def run_doctor() -> dict:
     checks = [check_lark_cli(), check_pdf_runtime()]
     return {
-        "ok": all(check.ok for check in checks),
+        "ok": all(check.ok for check in checks if check.required),
         "checks": [asdict(check) for check in checks],
     }

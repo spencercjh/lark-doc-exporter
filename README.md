@@ -59,7 +59,8 @@ lark-doc-exporter doctor
 ```
 
 `doctor` always checks `lark-cli`, and it also reports Chromium readiness for
-`--pdf-mode rendered`. Native mode does not require Chromium.
+`--pdf-mode rendered`. Native mode does not require Chromium, so missing
+Chromium no longer makes the overall doctor result fail.
 
 ## One-off Run
 
