@@ -1,6 +1,6 @@
 ---
 name: lark-doc-exporter
-description: Export Feishu/Lark docs with synced blocks expanded into Markdown plus rendered or native PDFs, and install this companion skill into Codex or Claude Code.
+description: Use when a user wants to export a Feishu/Lark doc into localized Markdown and PDF, prefers native PDF as the recommended path, or needs this companion skill installed into Codex or Claude Code.
 ---
 
 # lark-doc-exporter
@@ -8,34 +8,46 @@ description: Export Feishu/Lark docs with synced blocks expanded into Markdown p
 Use this tool when a user wants to:
 
 - export a Feishu/Lark doc into localized Markdown
-- render a themeable local PDF from that Markdown or use native Feishu PDF mode
-- check whether `lark-cli` and Chromium are ready
+- use native Feishu PDF mode as the default recommended PDF path
+- render a local PDF only when they explicitly need `--theme` / `--css`
+- check whether `lark-cli` is ready, or whether Chromium is ready for rendered mode
 - install this companion skill into supported AI hosts
 
 ## Prerequisites
 
 - `lark-cli` available on `PATH` with a user session configured
-- Chromium available locally, or install it with `uvx --from playwright playwright install chromium`
 - the `lark-doc-exporter` command installed if the user wants repeated local use
+- native mode does not require Chromium
+- Chromium is needed only for rendered mode, and you can install it with `uvx --from playwright playwright install chromium`
 
 ## Common commands
-
-```bash
-lark-doc-exporter doctor
-```
-
-Checks whether `lark-cli` and Chromium are ready for local export work.
 
 ```bash
 lark-doc-exporter \
   --doc "<doc-url-or-token>" \
   --output-dir exports/demo \
   --formats markdown,pdf \
+  --pdf-mode native
+```
+
+Expands synced blocks, exports Markdown, localizes images, and uses native Feishu PDF plus footer handling.
+
+```bash
+lark-doc-exporter \
+  --doc "<doc-url-or-token>" \
+  --output-dir exports/rendered \
+  --formats markdown,pdf \
   --theme default \
   --pdf-mode rendered
 ```
 
-Expands synced blocks, exports Markdown, localizes images, and optionally renders a local PDF or uses native Feishu PDF plus footer handling.
+Use rendered mode only when the user explicitly needs local theme/CSS control.
+
+```bash
+lark-doc-exporter doctor
+```
+
+Checks whether `lark-cli` is ready and whether Chromium is available for rendered mode.
 
 ```bash
 lark-doc-exporter skill install --dry-run
@@ -47,10 +59,10 @@ Installs this companion skill into supported AI hosts. Auto mode installs only i
 
 ## Key parameters
 
+- `--pdf-mode rendered|native`: choose native Feishu PDF or local rendered PDF
 - `--formats markdown,pdf`: choose output formats
-- `--theme default|company`: pick the built-in PDF theme
-- `--css /path/to/extra.css`: layer extra print CSS on top of the chosen theme
-- `--pdf-mode rendered|native`: choose local rendered PDF or native Feishu PDF plus footer handling
+- `--theme default|company`: pick the built-in PDF theme for rendered mode
+- `--css /path/to/extra.css`: layer extra print CSS on top of the rendered theme
 - `--keep-temp-doc`: keep the temporary expanded Feishu doc for inspection
 - `skill install --host codex|claude|all`: select install targets
 - `skill install --force`: overwrite an unknown existing target directory
@@ -58,6 +70,7 @@ Installs this companion skill into supported AI hosts. Auto mode installs only i
 
 ## Guidance
 
-- Prefer `doctor` before the first export on a new machine.
+- Prefer `--pdf-mode native` unless the user explicitly needs local styling control.
+- Use rendered mode only when `--theme` / `--css` are the real requirement.
+- Use `doctor` before the first rendered export on a new machine, or when Chromium setup is unclear.
 - Use `--dry-run` before `skill install` when the user wants to verify target paths.
-- Use `--pdf-mode native` when the user wants Feishu native PDF layout plus AI-footer handling.

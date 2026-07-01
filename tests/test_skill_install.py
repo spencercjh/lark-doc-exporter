@@ -19,13 +19,15 @@ def test_bundled_skill_dir_contains_skill_markdown():
     assert root.joinpath("SKILL.md").is_file()
 
 
-def test_bundled_skill_markdown_mentions_commands_and_prereqs():
+def test_bundled_skill_markdown_mentions_native_first_commands_and_prereqs():
     text = bundled_skill_markdown()
 
     assert "lark-doc-exporter doctor" in text
     assert "lark-doc-exporter skill install" in text
     assert "lark-cli" in text
     assert "Chromium" in text
+    assert "--pdf-mode native" in text
+    assert "Prefer `--pdf-mode native`" in text
 
 
 def test_run_skill_install_auto_uses_existing_hosts_only(tmp_path: Path):

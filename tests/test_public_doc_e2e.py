@@ -12,6 +12,10 @@ import pytest
 
 import public_doc_e2e_case as case
 from lark_synced_export.cli import run_main
+from lark_synced_export.exporter import (
+    LARK_CLI_IDENTITY_ENV,
+    resolve_lark_cli_identity,
+)
 from public_doc_e2e_case import FeaturePoint
 
 
@@ -104,7 +108,45 @@ def test_assert_feature_point_reports_missing_pdf_image_snapshot(tmp_path: Path)
         )
 
 
-def test_is_lark_cli_user_ready_accepts_needs_refresh(monkeypatch):
+def test_resolve_lark_cli_identity_defaults_to_user(monkeypatch):
+    monkeypatch.delenv(LARK_CLI_IDENTITY_ENV, raising=False)
+
+    assert resolve_lark_cli_identity() == "user"
+
+
+def test_resolve_lark_cli_identity_accepts_bot_override(monkeypatch):
+    monkeypatch.setenv(LARK_CLI_IDENTITY_ENV, "bot")
+
+    assert resolve_lark_cli_identity() == "bot"
+
+
+def test_is_lark_cli_identity_ready_accepts_ready_identity(monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/lark-cli")
+
+    def fake_run(*_args, **_kwargs):
+        return subprocess.CompletedProcess(
+            args=["lark-cli", "auth", "status", "--json"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "identities": {
+                        "user": {
+                            "available": True,
+                            "status": "ready",
+                            "message": "User identity: ready",
+                        }
+                    }
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert is_lark_cli_identity_ready("user") == (True, "User identity: ready")
+
+
+def test_is_lark_cli_identity_ready_rejects_needs_refresh(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/lark-cli")
 
     def fake_run(*_args, **_kwargs):
@@ -127,19 +169,22 @@ def test_is_lark_cli_user_ready_accepts_needs_refresh(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    assert is_lark_cli_user_ready() == (True, "User identity: needs refresh")
+    assert is_lark_cli_identity_ready("user") == (
+        False,
+        "User identity: needs refresh",
+    )
 
 
-def test_is_lark_cli_user_ready_rejects_missing_binary(monkeypatch):
+def test_is_lark_cli_identity_ready_rejects_missing_binary(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda _name: None)
 
-    ok, detail = is_lark_cli_user_ready()
+    ok, detail = is_lark_cli_identity_ready("user")
 
     assert ok is False
     assert "not on PATH" in detail
 
 
-def test_is_lark_cli_user_ready_rejects_timeout(monkeypatch):
+def test_is_lark_cli_identity_ready_rejects_timeout(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/lark-cli")
 
     def fake_run(*_args, **_kwargs):
@@ -147,7 +192,7 @@ def test_is_lark_cli_user_ready_rejects_timeout(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    ok, detail = is_lark_cli_user_ready()
+    ok, detail = is_lark_cli_identity_ready("user")
 
     assert ok is False
     assert "timed out" in detail
@@ -155,13 +200,17 @@ def test_is_lark_cli_user_ready_rejects_timeout(monkeypatch):
 
 def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
     monkeypatch.setattr(
-        "test_public_doc_e2e.is_lark_cli_user_ready",
-        lambda: (False, "User identity unavailable"),
+        "test_public_doc_e2e.resolve_lark_cli_identity",
+        lambda: "bot",
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (False, "Bot identity unavailable"),
     )
 
     with pytest.raises(
         pytest.fail.Exception,
-        match="canonical public doc is configured but lark-cli user session unavailable: User identity unavailable",
+        match="canonical public doc is configured but lark-cli bot identity is not ready: Bot identity unavailable",
     ):
         require_public_doc_auth_ready()
 
@@ -242,7 +291,7 @@ def assert_feature_point(
         )
 
 
-def is_lark_cli_user_ready() -> tuple[bool, str]:
+def is_lark_cli_identity_ready(identity: str) -> tuple[bool, str]:
     binary = shutil.which("lark-cli")
     if not binary:
         return False, "`lark-cli` is not on PATH"
@@ -264,17 +313,22 @@ def is_lark_cli_user_ready() -> tuple[bool, str]:
     except json.JSONDecodeError:
         return False, "invalid JSON from `lark-cli auth status --json`"
 
-    user = payload.get("identities", {}).get("user", {})
-    if not user.get("available"):
-        return False, user.get("message", "User identity unavailable")
-    return True, user.get("message", "User identity ready")
+    selected = payload.get("identities", {}).get(identity, {})
+    label = f"{identity.capitalize()} identity"
+    if not selected.get("available"):
+        return False, selected.get("message", f"{label} unavailable")
+    if selected.get("status") != "ready":
+        return False, selected.get("message", f"{label} not ready")
+    return True, selected.get("message", f"{label} ready")
 
 
 def require_public_doc_auth_ready() -> None:
-    auth_ready, auth_detail = is_lark_cli_user_ready()
+    identity = resolve_lark_cli_identity()
+    auth_ready, auth_detail = is_lark_cli_identity_ready(identity)
     if not auth_ready:
         pytest.fail(
-            "canonical public doc is configured but lark-cli user session unavailable: "
+            "canonical public doc is configured but lark-cli "
+            f"{identity} identity is not ready: "
             f"{auth_detail}"
         )
 

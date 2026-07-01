@@ -224,6 +224,21 @@ def run_json(cmd: list[str], cwd: Path | None = None) -> dict:
     return json.loads(proc.stdout)
 
 
+LARK_CLI_IDENTITY_ENV = "LARK_DOC_EXPORTER_IDENTITY"
+
+
+def resolve_lark_cli_identity() -> str:
+    raw_identity = os.environ.get(LARK_CLI_IDENTITY_ENV, "")
+    if not raw_identity.strip():
+        return "user"
+    identity = raw_identity.strip().lower()
+    if identity not in {"user", "bot"}:
+        raise ValueError(
+            f"{LARK_CLI_IDENTITY_ENV} must be 'user' or 'bot'; got {raw_identity!r}"
+        )
+    return identity
+
+
 def extract_title(xml_text: str) -> str:
     match = TITLE_RE.search(xml_text)
     if not match:
@@ -231,14 +246,14 @@ def extract_title(xml_text: str) -> str:
     return re.sub(r"\s+", " ", match.group(1)).strip()
 
 
-def fetch_full_xml(doc_ref: str) -> str:
+def fetch_full_xml(doc_ref: str, lark_cli_identity: str) -> str:
     payload = run_json(
         [
             "lark-cli",
             "docs",
             "+fetch",
             "--as",
-            "user",
+            lark_cli_identity,
             "--api-version",
             "v2",
             "--doc",
@@ -253,7 +268,10 @@ def fetch_full_xml(doc_ref: str) -> str:
 
 
 def fetch_synced_block(
-    src_token: str, src_block_id: str, cache: dict[tuple[str, str], str]
+    src_token: str,
+    src_block_id: str,
+    cache: dict[tuple[str, str], str],
+    lark_cli_identity: str,
 ) -> str:
     key = (src_token, src_block_id)
     if key in cache:
@@ -265,7 +283,7 @@ def fetch_synced_block(
             "docs",
             "+fetch",
             "--as",
-            "user",
+            lark_cli_identity,
             "--api-version",
             "v2",
             "--doc",
@@ -290,7 +308,7 @@ def fetch_synced_block(
     return content
 
 
-def expand_synced_references(xml_text: str) -> tuple[str, int]:
+def expand_synced_references(xml_text: str, lark_cli_identity: str) -> tuple[str, int]:
     cache: dict[tuple[str, str], str] = {}
     total = 0
 
@@ -301,7 +319,12 @@ def expand_synced_references(xml_text: str) -> tuple[str, int]:
             nonlocal changed
             changed += 1
             src_block_id, src_token = match.group(1), match.group(2)
-            return fetch_synced_block(src_token, src_block_id, cache)
+            return fetch_synced_block(
+                src_token,
+                src_block_id,
+                cache,
+                lark_cli_identity,
+            )
 
         xml_text = REF_RE.sub(repl, xml_text)
         total += changed
@@ -368,7 +391,9 @@ def normalize_xml_for_create(xml_text: str, title_suffix: str) -> tuple[str, str
     return xml_text, new_title
 
 
-def create_temp_doc(xml_text: str, stage_dir: Path) -> tuple[str, str]:
+def create_temp_doc(
+    xml_text: str, stage_dir: Path, lark_cli_identity: str
+) -> tuple[str, str]:
     content_file = stage_dir / "expanded.xml"
     content_file.write_text(xml_text, encoding="utf-8")
     payload = run_json(
@@ -377,7 +402,7 @@ def create_temp_doc(xml_text: str, stage_dir: Path) -> tuple[str, str]:
             "docs",
             "+create",
             "--as",
-            "user",
+            lark_cli_identity,
             "--api-version",
             "v2",
             "--parent-position",
@@ -401,7 +426,11 @@ def slugify_filename(name: str) -> str:
 
 
 def export_doc(
-    temp_doc_token: str, output_dir: Path, file_stem: str, formats: list[str]
+    temp_doc_token: str,
+    output_dir: Path,
+    file_stem: str,
+    formats: list[str],
+    lark_cli_identity: str,
 ) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     export_cwd = output_dir.parent
@@ -416,7 +445,7 @@ def export_doc(
             "drive",
             "+export",
             "--as",
-            "user",
+            lark_cli_identity,
             "--token",
             temp_doc_token,
             "--doc-type",
@@ -435,24 +464,46 @@ def export_doc(
     return results
 
 
-def export_markdown(temp_doc_token: str, output_dir: Path, file_stem: str) -> Path:
-    result = export_doc(temp_doc_token, output_dir, file_stem, formats=["markdown"])
+def export_markdown(
+    temp_doc_token: str,
+    output_dir: Path,
+    file_stem: str,
+    lark_cli_identity: str,
+) -> Path:
+    result = export_doc(
+        temp_doc_token,
+        output_dir,
+        file_stem,
+        formats=["markdown"],
+        lark_cli_identity=lark_cli_identity,
+    )
     return Path(result["markdown"])
 
 
-def export_native_pdf(temp_doc_token: str, output_dir: Path, file_stem: str) -> Path:
-    result = export_doc(temp_doc_token, output_dir, file_stem, formats=["pdf"])
+def export_native_pdf(
+    temp_doc_token: str,
+    output_dir: Path,
+    file_stem: str,
+    lark_cli_identity: str,
+) -> Path:
+    result = export_doc(
+        temp_doc_token,
+        output_dir,
+        file_stem,
+        formats=["pdf"],
+        lark_cli_identity=lark_cli_identity,
+    )
     return Path(result["pdf"])
 
 
-def delete_temp_doc(temp_doc_token: str) -> None:
+def delete_temp_doc(temp_doc_token: str, lark_cli_identity: str) -> None:
     run_json(
         [
             "lark-cli",
             "drive",
             "+delete",
             "--as",
-            "user",
+            lark_cli_identity,
             "--file-token",
             temp_doc_token,
             "--type",
@@ -555,9 +606,10 @@ def export_document(
         raise FileNotFoundError(f"override CSS not found: {override_css}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    lark_cli_identity = resolve_lark_cli_identity()
 
-    raw_xml = fetch_full_xml(doc_ref)
-    expanded_xml, expanded_count = expand_synced_references(raw_xml)
+    raw_xml = fetch_full_xml(doc_ref, lark_cli_identity)
+    expanded_xml, expanded_count = expand_synced_references(raw_xml, lark_cli_identity)
     normalized_xml, temp_title = normalize_xml_for_create(expanded_xml, title_suffix)
     final_stem = file_stem or slugify_filename(temp_title)
 
@@ -569,7 +621,11 @@ def export_document(
 
     with tempfile.TemporaryDirectory(prefix="lark-doc-exporter-") as tmpdir:
         stage_dir = Path(tmpdir)
-        temp_doc_token, temp_doc_url = create_temp_doc(normalized_xml, stage_dir)
+        temp_doc_token, temp_doc_url = create_temp_doc(
+            normalized_xml,
+            stage_dir,
+            lark_cli_identity,
+        )
         try:
             needs_markdown_artifacts = "markdown" in formats or (
                 "pdf" in formats and pdf_mode == "rendered"
@@ -578,7 +634,10 @@ def export_document(
 
             if needs_markdown_artifacts:
                 raw_markdown_path = export_markdown(
-                    temp_doc_token, stage_dir, f"{final_stem}.raw"
+                    temp_doc_token,
+                    stage_dir,
+                    f"{final_stem}.raw",
+                    lark_cli_identity,
                 )
                 render_root = output_dir if "markdown" in formats else stage_dir
                 localized_markdown_path = render_root / f"{final_stem}.md"
@@ -607,7 +666,10 @@ def export_document(
                     outputs["pdf"] = str(output_pdf)
                 else:
                     raw_native_pdf = export_native_pdf(
-                        temp_doc_token, stage_dir, f"{final_stem}.native-raw"
+                        temp_doc_token,
+                        stage_dir,
+                        f"{final_stem}.native-raw",
+                        lark_cli_identity,
                     )
                     preserved_raw_pdf = output_dir / f"{final_stem}.native-raw.pdf"
                     if output_pdf.exists():
@@ -628,7 +690,7 @@ def export_document(
                         outputs["pdf"] = footer_result.final_pdf_path
         finally:
             if not keep_temp_doc:
-                delete_temp_doc(temp_doc_token)
+                delete_temp_doc(temp_doc_token, lark_cli_identity)
 
     native_failure = (
         "pdf" in formats
