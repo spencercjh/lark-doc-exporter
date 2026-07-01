@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "expanded_references": 2,
+  "pdf_mode": "native",
+  "pdf_renderer": "feishu-native",
+  "localized_images": 1,
+  "ai_footer_postprocess.status": "removed"
+}

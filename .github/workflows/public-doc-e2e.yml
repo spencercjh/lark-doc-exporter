@@ -1,0 +1,95 @@
+name: public-doc-e2e
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.14"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-doc-e2e:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    env:
+      LARK_CLI_HOME_B64: ${{ secrets.LARK_CLI_HOME_B64 }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install lark-cli
+        run: npm install -g @larksuite/cli@1.0.56
+
+      - name: Restore lark-cli home
+        shell: bash
+        run: |
+          if [[ -z "${LARK_CLI_HOME_B64:-}" ]]; then
+            echo "LARK_CLI_HOME_B64 not set; skipping restore." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$LARK_CLI_HOME_B64" | base64 -d > /tmp/lark-cli-home.tgz
+          tar -xzf /tmp/lark-cli-home.tgz -C "$HOME"
+
+      - name: Note missing lark-cli auth fixture
+        if: ${{ env.LARK_CLI_HOME_B64 == '' }}
+        shell: bash
+        run: |
+          {
+            echo "### public-doc-e2e not provisioned"
+            echo
+            echo "Skipping live public-doc E2E because LARK_CLI_HOME_B64 is not configured for this repository."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show lark-cli auth status
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          lark-cli auth status --json | tee /tmp/lark-cli-auth-status.json
+          {
+            echo "### lark-cli auth status"
+            echo '```json'
+            cat /tmp/lark-cli-auth-status.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Python
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up uv
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Sync dev dependencies
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
+        run: uv sync --python ${{ env.PYTHON_VERSION }} --group dev
+
+      - name: Run public-doc e2e
+        if: ${{ env.LARK_CLI_HOME_B64 != '' }}
+        run: make test-public-doc-e2e
