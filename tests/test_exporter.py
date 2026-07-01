@@ -3,13 +3,34 @@ from pathlib import Path
 import pytest
 
 from lark_synced_export.exporter import (
+    LARK_CLI_IDENTITY_ENV,
     build_render_html,
     export_document,
     normalize_xml_for_create,
+    resolve_lark_cli_identity,
     resolve_theme_css,
     slugify_filename,
 )
 from lark_synced_export.native_pdf_footer import NativePdfPostprocessResult
+
+
+def test_resolve_lark_cli_identity_defaults_to_user(monkeypatch):
+    monkeypatch.delenv(LARK_CLI_IDENTITY_ENV, raising=False)
+
+    assert resolve_lark_cli_identity() == "user"
+
+
+def test_resolve_lark_cli_identity_accepts_bot_override(monkeypatch):
+    monkeypatch.setenv(LARK_CLI_IDENTITY_ENV, "bot")
+
+    assert resolve_lark_cli_identity() == "bot"
+
+
+def test_resolve_lark_cli_identity_rejects_invalid_override(monkeypatch):
+    monkeypatch.setenv(LARK_CLI_IDENTITY_ENV, "robot")
+
+    with pytest.raises(ValueError, match=LARK_CLI_IDENTITY_ENV):
+        resolve_lark_cli_identity()
 
 
 def test_slugify_filename_collapses_spaces_and_invalid_chars():
@@ -108,10 +129,12 @@ def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Pat
         "lark_synced_export.exporter.tempfile.TemporaryDirectory", DummyTempDir
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.fetch_full_xml", lambda _doc: "<title>Demo</title>"
+        "lark_synced_export.exporter.fetch_full_xml",
+        lambda _doc, _identity: "<title>Demo</title>",
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.expand_synced_references", lambda xml: (xml, 0)
+        "lark_synced_export.exporter.expand_synced_references",
+        lambda xml, _identity: (xml, 0),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.normalize_xml_for_create",
@@ -119,14 +142,15 @@ def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Pat
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.create_temp_doc",
-        lambda xml, stage: ("tmp-token", "https://example.com/doc"),
+        lambda xml, stage, _identity: ("tmp-token", "https://example.com/doc"),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.export_markdown",
-        lambda token, stage, stem: raw_markdown_path,
+        lambda token, stage, stem, _identity: raw_markdown_path,
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.delete_temp_doc", lambda _token: None
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.localize_markdown_images", fake_localize
@@ -154,6 +178,99 @@ def test_export_document_does_not_pin_tempdir_to_repo(monkeypatch, tmp_path: Pat
 
     assert "dir" not in capture["kwargs"]
     assert result["outputs"]["pdf"].endswith("demo.pdf")
+
+
+def test_export_document_uses_configured_lark_cli_identity(monkeypatch, tmp_path: Path):
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    raw_markdown_path = stage_dir / "demo.raw.md"
+    raw_markdown_path.write_text("# Demo\n", encoding="utf-8")
+    theme_css = tmp_path / "theme.css"
+    theme_css.write_text(":root { --accent: #123456; }", encoding="utf-8")
+    capture: dict[str, str] = {}
+
+    class DummyTempDir:
+        def __enter__(self):
+            return str(stage_dir)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_fetch(_doc: str, identity: str) -> str:
+        capture["fetch"] = identity
+        return "<title>Demo</title>"
+
+    def fake_expand(xml: str, identity: str) -> tuple[str, int]:
+        capture["expand"] = identity
+        return xml, 0
+
+    def fake_create(_xml: str, _stage: Path, identity: str) -> tuple[str, str]:
+        capture["create"] = identity
+        return "tmp-token", "https://example.com/doc"
+
+    def fake_export_markdown(
+        _token: str, _stage: Path, _stem: str, identity: str
+    ) -> Path:
+        capture["markdown"] = identity
+        return raw_markdown_path
+
+    def fake_delete(_token: str, identity: str) -> None:
+        capture["delete"] = identity
+
+    monkeypatch.setenv(LARK_CLI_IDENTITY_ENV, "bot")
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.tempfile.TemporaryDirectory",
+        lambda *a, **k: DummyTempDir(),
+    )
+    monkeypatch.setattr("lark_synced_export.exporter.fetch_full_xml", fake_fetch)
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.expand_synced_references", fake_expand
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.normalize_xml_for_create",
+        lambda xml, suffix: (xml, "Demo"),
+    )
+    monkeypatch.setattr("lark_synced_export.exporter.create_temp_doc", fake_create)
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.export_markdown", fake_export_markdown
+    )
+    monkeypatch.setattr("lark_synced_export.exporter.delete_temp_doc", fake_delete)
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.localize_markdown_images",
+        lambda _src, dst, _assets: dst.write_text("# Demo\n", encoding="utf-8") or 0,
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.resolve_theme_css", lambda _theme: theme_css
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.render_markdown_body",
+        lambda _markdown_path, body_html: body_html.write_text(
+            "<h1>Demo</h1>", encoding="utf-8"
+        ),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.render_html_to_pdf",
+        lambda _html, output_pdf: output_pdf.write_bytes(b"%PDF-1.4\n"),
+    )
+
+    export_document(
+        doc_ref="demo",
+        output_dir=tmp_path / "out",
+        formats=["markdown", "pdf"],
+        title_suffix="",
+        file_stem="demo",
+        keep_temp_doc=False,
+        theme_name="default",
+        override_css=None,
+    )
+
+    assert capture == {
+        "fetch": "bot",
+        "expand": "bot",
+        "create": "bot",
+        "markdown": "bot",
+        "delete": "bot",
+    }
 
 
 def test_export_document_rejects_unsupported_pdf_mode(tmp_path: Path):
@@ -208,10 +325,12 @@ def test_export_document_normalizes_callouts_before_render(monkeypatch, tmp_path
         "lark_synced_export.exporter.tempfile.TemporaryDirectory", DummyTempDir
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.fetch_full_xml", lambda _doc: "<title>Demo</title>"
+        "lark_synced_export.exporter.fetch_full_xml",
+        lambda _doc, _identity: "<title>Demo</title>",
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.expand_synced_references", lambda xml: (xml, 0)
+        "lark_synced_export.exporter.expand_synced_references",
+        lambda xml, _identity: (xml, 0),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.normalize_xml_for_create",
@@ -219,14 +338,15 @@ def test_export_document_normalizes_callouts_before_render(monkeypatch, tmp_path
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.create_temp_doc",
-        lambda xml, stage: ("tmp-token", "https://example.com/doc"),
+        lambda xml, stage, _identity: ("tmp-token", "https://example.com/doc"),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.export_markdown",
-        lambda token, stage, stem: raw_markdown_path,
+        lambda token, stage, stem, _identity: raw_markdown_path,
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.delete_temp_doc", lambda _token: None
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.localize_markdown_images", fake_localize
@@ -298,10 +418,12 @@ def test_export_document_normalizes_user_mentions_before_render(
         "lark_synced_export.exporter.tempfile.TemporaryDirectory", DummyTempDir
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.fetch_full_xml", lambda _doc: "<title>Demo</title>"
+        "lark_synced_export.exporter.fetch_full_xml",
+        lambda _doc, _identity: "<title>Demo</title>",
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.expand_synced_references", lambda xml: (xml, 0)
+        "lark_synced_export.exporter.expand_synced_references",
+        lambda xml, _identity: (xml, 0),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.normalize_xml_for_create",
@@ -309,14 +431,15 @@ def test_export_document_normalizes_user_mentions_before_render(
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.create_temp_doc",
-        lambda xml, stage: ("tmp-token", "https://example.com/doc"),
+        lambda xml, stage, _identity: ("tmp-token", "https://example.com/doc"),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.export_markdown",
-        lambda token, stage, stem: raw_markdown_path,
+        lambda token, stage, stem, _identity: raw_markdown_path,
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.delete_temp_doc", lambda _token: None
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.localize_markdown_images", fake_localize
@@ -380,10 +503,12 @@ def test_export_document_native_not_found_sets_pdf_payload(monkeypatch, tmp_path
         lambda *a, **k: DummyTempDir(),
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.fetch_full_xml", lambda _doc: "<title>Demo</title>"
+        "lark_synced_export.exporter.fetch_full_xml",
+        lambda _doc, _identity: "<title>Demo</title>",
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.expand_synced_references", lambda xml: (xml, 0)
+        "lark_synced_export.exporter.expand_synced_references",
+        lambda xml, _identity: (xml, 0),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.normalize_xml_for_create",
@@ -391,14 +516,15 @@ def test_export_document_native_not_found_sets_pdf_payload(monkeypatch, tmp_path
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.create_temp_doc",
-        lambda xml, stage: ("tmp-token", "https://example.com/doc"),
+        lambda xml, stage, _identity: ("tmp-token", "https://example.com/doc"),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.export_native_pdf",
-        lambda token, stage, stem: raw_native_pdf,
+        lambda token, stage, stem, _identity: raw_native_pdf,
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.delete_temp_doc", lambda _token: None
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.postprocess_native_pdf", fake_postprocess
@@ -451,10 +577,12 @@ def test_export_document_native_failure_keeps_markdown_and_warning(
         lambda *a, **k: DummyTempDir(),
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.fetch_full_xml", lambda _doc: "<title>Demo</title>"
+        "lark_synced_export.exporter.fetch_full_xml",
+        lambda _doc, _identity: "<title>Demo</title>",
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.expand_synced_references", lambda xml: (xml, 0)
+        "lark_synced_export.exporter.expand_synced_references",
+        lambda xml, _identity: (xml, 0),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.normalize_xml_for_create",
@@ -462,18 +590,19 @@ def test_export_document_native_failure_keeps_markdown_and_warning(
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.create_temp_doc",
-        lambda xml, stage: ("tmp-token", "https://example.com/doc"),
+        lambda xml, stage, _identity: ("tmp-token", "https://example.com/doc"),
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.export_markdown",
-        lambda token, stage, stem: raw_markdown_path,
+        lambda token, stage, stem, _identity: raw_markdown_path,
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.export_native_pdf",
-        lambda token, stage, stem: raw_native_pdf,
+        lambda token, stage, stem, _identity: raw_native_pdf,
     )
     monkeypatch.setattr(
-        "lark_synced_export.exporter.delete_temp_doc", lambda _token: None
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
     )
     monkeypatch.setattr(
         "lark_synced_export.exporter.localize_markdown_images", fake_localize

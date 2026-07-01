@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LARK_CLI_HOME_B64: ${{ secrets.LARK_CLI_HOME_B64 }}
+      LARK_DOC_EXPORTER_IDENTITY: bot
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
