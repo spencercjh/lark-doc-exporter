@@ -3,15 +3,19 @@
 Export Feishu/Lark docs with synced blocks expanded into:
 
 - Markdown with localized images
-- Themeable locally rendered PDF by default
-- Optional native Feishu PDF mode with AI-footer post-processing
+- Recommended native Feishu PDF with AI-footer post-processing
+- Optional locally rendered PDF when you need theme/CSS control
 
 ## Requirements
 
-- `lark-cli` configured with a user session
-- Python 3.14
-- For `--pdf-mode rendered`: a working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
-- For `--pdf-mode native`: PyMuPDF available in the runtime environment (bundled with this package dependency as `pymupdf`)
+- Base requirements:
+  - `lark-cli` configured with a user session
+  - Python 3.14
+- For `--pdf-mode native`:
+  - no Chromium runtime is required
+  - PyMuPDF is already bundled through this package dependency
+- For `--pdf-mode rendered`:
+  - a working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
 
 If you use `uvx` / `uv tool install`, `uv` can provision the required Python for
 the tool environment automatically.
@@ -20,24 +24,42 @@ the tool environment automatically.
 
 ```bash
 uv tool install lark-doc-exporter
-lark-doc-exporter doctor
+lark-doc-exporter \
+  --doc "https://dynamia-ai.feishu.cn/wiki/BVXXwgzbZivjQZkr7jmcsGcinGh" \
+  --output-dir exports/native \
+  --formats markdown,pdf \
+  --pdf-mode native
 ```
 
-If you want rendered PDF output and Chromium is missing, prepare it once:
+That is the recommended PDF path unless you explicitly need local `--theme` /
+`--css` control.
+
+## Rendered PDF Mode
+
+Use rendered mode only when you need local styling control:
 
 ```bash
 uvx --from playwright playwright install chromium
-```
 
-Then run an export:
-
-```bash
 lark-doc-exporter \
   --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
-  --output-dir exports/demo \
+  --output-dir exports/rendered \
   --formats markdown,pdf \
-  --theme default
+  --theme default \
+  --pdf-mode rendered
 ```
+
+If you already have a browser binary, you can point the exporter at it with
+`LARK_DOC_EXPORTER_CHROMIUM=/path/to/chromium`.
+
+## Environment Check
+
+```bash
+lark-doc-exporter doctor
+```
+
+`doctor` always checks `lark-cli`, and it also reports Chromium readiness for
+`--pdf-mode rendered`. Native mode does not require Chromium.
 
 ## One-off Run
 
@@ -45,10 +67,10 @@ If you do not want a persistent tool install:
 
 ```bash
 uvx lark-doc-exporter \
-  --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
-  --output-dir exports/demo \
+  --doc "https://dynamia-ai.feishu.cn/wiki/BVXXwgzbZivjQZkr7jmcsGcinGh" \
+  --output-dir exports/native \
   --formats markdown,pdf \
-  --theme default
+  --pdf-mode native
 ```
 
 ## Install As A Tool
@@ -67,21 +89,15 @@ Auto mode installs the companion skill into every detected supported host:
 
 Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `--dry-run` previews the install plan and target directories without writing files. Use `--force` only when you intentionally want to replace an existing unmanaged target directory.
 
-## Chromium Setup
-
-- `doctor` reports whether `lark-cli` is ready and whether Chromium is available for rendered PDF mode.
-- If you already have a browser binary, you can point the exporter at it with `LARK_DOC_EXPORTER_CHROMIUM=/path/to/chromium`.
-- If `LARK_DOC_EXPORTER_CHROMIUM` is set to a missing path, the command fails explicitly instead of silently falling back.
-
 ## Output
 
 - `markdown` keeps the localized Markdown file in the output directory.
-- `pdf` uses either local HTML/CSS + Chromium (`--pdf-mode rendered`) or Feishu native PDF plus footer handling (`--pdf-mode native`).
+- `pdf` uses Feishu native PDF plus footer handling (`--pdf-mode native`) or local HTML/CSS + Chromium (`--pdf-mode rendered`).
 - `images/` contains same-run localized image assets used by the Markdown/PDF.
 
 ### Native PDF Mode
 
-If you want Feishu native PDF layout instead of the local HTML/Chromium path:
+Prefer this mode unless you need local theme/CSS control:
 
 ```bash
 lark-doc-exporter \
@@ -99,6 +115,8 @@ Native mode rules:
 - failure states emit warnings and keep `<stem>.native-raw.pdf` for inspection
 
 ## Themes
+
+Themes and custom CSS apply only to `--pdf-mode rendered`.
 
 Built-in themes:
 
