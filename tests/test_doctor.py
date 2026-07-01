@@ -83,9 +83,7 @@ def test_run_doctor_keeps_chromium_check_but_only_requires_lark_cli(monkeypatch)
 def test_run_doctor_fails_when_required_lark_cli_check_fails(monkeypatch):
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_lark_cli",
-        lambda: DoctorCheck(
-            name="lark-cli", ok=False, detail="missing", required=True
-        ),
+        lambda: DoctorCheck(name="lark-cli", ok=False, detail="missing", required=True),
     )
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_pdf_runtime",
