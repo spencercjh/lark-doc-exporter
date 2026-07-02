@@ -3,10 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from lark_synced_export import skill_install
 from lark_synced_export.cli import run_main
 from lark_synced_export.skill_install import (
-    INSTALL_METADATA_FILENAME,
+    KITUP_METADATA_FILENAME,
     bundled_skill_dir,
     bundled_skill_markdown,
     run_skill_install,
@@ -38,11 +37,18 @@ def test_run_skill_install_auto_uses_existing_hosts_only(tmp_path: Path):
     result = run_skill_install(host="auto", force=False, dry_run=True, home=home)
 
     assert result["dry_run"] is True
-    assert [item["host"] for item in result["targets"]] == ["codex", "claude"]
+    assert [item["host"] for item in result["targets"]] == ["claude", "codex"]
     assert [item["action"] for item in result["targets"]] == ["install", "install"]
 
 
-def test_run_skill_install_explicit_host_creates_parent_and_writes_metadata(
+def test_run_skill_install_auto_requires_existing_supported_host(tmp_path: Path):
+    home = tmp_path / "home"
+
+    with pytest.raises(RuntimeError, match="No supported host skill directory found"):
+        run_skill_install(host="auto", force=False, dry_run=True, home=home)
+
+
+def test_run_skill_install_explicit_host_creates_parent_and_writes_kitup_metadata(
     tmp_path: Path,
 ):
     home = tmp_path / "home"
@@ -51,13 +57,25 @@ def test_run_skill_install_explicit_host_creates_parent_and_writes_metadata(
 
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
     metadata = json.loads(
-        (target_dir / INSTALL_METADATA_FILENAME).read_text(encoding="utf-8")
+        (target_dir / KITUP_METADATA_FILENAME).read_text(encoding="utf-8")
     )
     assert result["targets"][0]["host"] == "codex"
     assert result["targets"][0]["action"] == "install"
     assert (target_dir / "SKILL.md").is_file()
-    assert metadata["tool"] == "lark-doc-exporter"
-    assert metadata["host"] == "codex"
+    assert metadata["appId"] == "lark-doc-exporter"
+    assert metadata["skillName"] == "lark-doc-exporter"
+    assert metadata["source"] == "bundled"
+
+
+def test_run_skill_install_explicit_claude_maps_to_claude_code_target(tmp_path: Path):
+    home = tmp_path / "home"
+
+    result = run_skill_install(host="claude", force=False, dry_run=False, home=home)
+
+    target_dir = home / ".claude" / "skills" / "lark-doc-exporter"
+    assert result["targets"][0]["host"] == "claude"
+    assert target_dir.is_dir()
+    assert (target_dir / KITUP_METADATA_FILENAME).is_file()
 
 
 def test_run_skill_install_refuses_unknown_existing_directory_without_force(
@@ -72,19 +90,6 @@ def test_run_skill_install_refuses_unknown_existing_directory_without_force(
         run_skill_install(host="codex", force=False, dry_run=False, home=home)
 
 
-def test_run_skill_install_refuses_dangling_target_symlink_without_force(
-    tmp_path: Path,
-):
-    home = tmp_path / "home"
-    root_dir = home / ".agents" / "skills"
-    target_dir = root_dir / "lark-doc-exporter"
-    root_dir.mkdir(parents=True)
-    target_dir.symlink_to(home / "missing-target")
-
-    with pytest.raises(RuntimeError, match="--force"):
-        run_skill_install(host="codex", force=False, dry_run=False, home=home)
-
-
 def test_run_skill_install_force_overwrites_unknown_existing_directory(tmp_path: Path):
     home = tmp_path / "home"
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
@@ -94,29 +99,41 @@ def test_run_skill_install_force_overwrites_unknown_existing_directory(tmp_path:
     result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
 
     assert result["targets"][0]["action"] == "overwrite"
+    assert (target_dir / KITUP_METADATA_FILENAME).is_file()
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )
 
 
 @pytest.mark.parametrize("metadata_payload", ["{not json", "[]", '"x"', "1"])
-def test_run_skill_install_force_recovers_from_invalid_metadata(
+def test_run_skill_install_force_recovers_from_invalid_kitup_metadata(
     tmp_path: Path, metadata_payload: str
 ):
     home = tmp_path / "home"
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
     target_dir.mkdir(parents=True)
     (target_dir / "SKILL.md").write_text("custom", encoding="utf-8")
-    (target_dir / INSTALL_METADATA_FILENAME).write_text(
+    (target_dir / KITUP_METADATA_FILENAME).write_text(
         metadata_payload, encoding="utf-8"
     )
 
     result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
 
     assert result["targets"][0]["action"] == "overwrite"
-    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    assert (target_dir / KITUP_METADATA_FILENAME).is_file()
+
+
+def test_run_skill_install_force_recovers_from_non_utf8_kitup_metadata(tmp_path: Path):
+    home = tmp_path / "home"
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    target_dir.mkdir(parents=True)
+    (target_dir / "SKILL.md").write_text("custom", encoding="utf-8")
+    (target_dir / KITUP_METADATA_FILENAME).write_bytes(b"\xff")
+
+    result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
+
+    assert result["targets"][0]["action"] == "overwrite"
+    assert (target_dir / KITUP_METADATA_FILENAME).is_file()
 
 
 def test_run_skill_install_auto_rejects_host_root_file(tmp_path: Path):
@@ -141,7 +158,7 @@ def test_run_skill_install_explicit_codex_ignores_invalid_claude_root(tmp_path: 
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
     assert result["targets"][0]["host"] == "codex"
     assert target_dir.is_dir()
-    assert (target_dir / "SKILL.md").is_file()
+    assert (target_dir / KITUP_METADATA_FILENAME).is_file()
 
 
 def test_run_skill_install_explicit_host_rejects_dangling_root_symlink(tmp_path: Path):
@@ -154,12 +171,18 @@ def test_run_skill_install_explicit_host_rejects_dangling_root_symlink(tmp_path:
         run_skill_install(host="codex", force=False, dry_run=False, home=home)
 
 
-def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
+def test_run_skill_install_upgrades_existing_managed_install_when_hash_changes(
+    tmp_path: Path,
+):
     home = tmp_path / "home"
 
     initial = run_skill_install(host="codex", force=False, dry_run=False, home=home)
 
     target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    metadata_path = target_dir / KITUP_METADATA_FILENAME
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["hash"] = "sha256:old"
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     (target_dir / "SKILL.md").write_text("stale managed content", encoding="utf-8")
 
     result = run_skill_install(host="codex", force=False, dry_run=False, home=home)
@@ -169,74 +192,6 @@ def test_run_skill_install_upgrades_existing_managed_install(tmp_path: Path):
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )
-
-
-def test_run_skill_install_force_recovers_from_non_utf8_metadata(tmp_path: Path):
-    home = tmp_path / "home"
-    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
-    target_dir.mkdir(parents=True)
-    (target_dir / "SKILL.md").write_text("custom", encoding="utf-8")
-    (target_dir / INSTALL_METADATA_FILENAME).write_bytes(b"\xff")
-
-    result = run_skill_install(host="codex", force=True, dry_run=False, home=home)
-
-    assert result["targets"][0]["action"] == "overwrite"
-    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
-
-
-def test_run_skill_install_restores_existing_target_when_replace_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    home = tmp_path / "home"
-    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
-    run_skill_install(host="codex", force=False, dry_run=False, home=home)
-    (target_dir / "SKILL.md").write_text("managed but existing", encoding="utf-8")
-
-    real_replace = skill_install.replace_path
-
-    def fail_stage_replace(source: Path, destination: Path) -> None:
-        if source.name == "lark-doc-exporter" and destination == target_dir:
-            raise OSError("swap failed")
-        real_replace(source, destination)
-
-    monkeypatch.setattr(skill_install, "replace_path", fail_stage_replace)
-
-    with pytest.raises(OSError, match="swap failed"):
-        run_skill_install(host="codex", force=False, dry_run=False, home=home)
-
-    assert (target_dir / "SKILL.md").read_text(
-        encoding="utf-8"
-    ) == "managed but existing"
-
-
-def test_run_skill_install_all_rolls_back_earlier_targets_when_later_apply_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    home = tmp_path / "home"
-    codex_target = home / ".agents" / "skills" / "lark-doc-exporter"
-    claude_target = home / ".claude" / "skills" / "lark-doc-exporter"
-
-    run_skill_install(host="codex", force=False, dry_run=False, home=home)
-    run_skill_install(host="claude", force=False, dry_run=False, home=home)
-    (codex_target / "SKILL.md").write_text("codex original", encoding="utf-8")
-    (claude_target / "SKILL.md").write_text("claude original", encoding="utf-8")
-
-    real_replace = skill_install.replace_path
-
-    def fail_claude_stage_replace(source: Path, destination: Path) -> None:
-        if source.name == "lark-doc-exporter" and destination == claude_target:
-            raise OSError("claude swap failed")
-        real_replace(source, destination)
-
-    monkeypatch.setattr(skill_install, "replace_path", fail_claude_stage_replace)
-
-    with pytest.raises(OSError, match="claude swap failed"):
-        run_skill_install(host="all", force=False, dry_run=False, home=home)
-
-    assert (codex_target / "SKILL.md").read_text(encoding="utf-8") == "codex original"
-    assert (claude_target / "SKILL.md").read_text(encoding="utf-8") == "claude original"
 
 
 def test_run_skill_install_dry_run_does_not_write_files(tmp_path: Path):

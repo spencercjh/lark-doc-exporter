@@ -9,6 +9,7 @@ description = "Export Feishu/Lark docs with synced blocks to Markdown and themea
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+  "kitup @ git+https://github.com/spencercjh/kitup.git@a75be25#subdirectory=python",
   "markdown>=3.7,<4",
   "playwright>=1.61.0,<2",
   "pymupdf>=1.26,<2",
@@ -34,6 +35,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 lark_synced_export = [
+  "kitup_hosts.json",
   "themes/*.css",
   "skill_assets/lark-doc-exporter/SKILL.md",
 ]

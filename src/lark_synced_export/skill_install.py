@@ -1,48 +1,35 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from importlib.resources import as_file, files
 import json
 from pathlib import Path
-import shutil
-import tempfile
 from typing import Final
 
-from . import __version__
+from kitup import (
+    BaseOptions,
+    InstallOptions,
+    directory_bundle,
+    install_bundled_skill,
+    plan_bundled_skill,
+)
 
 
 SKILL_NAME: Final = "lark-doc-exporter"
-INSTALL_METADATA_FILENAME: Final = ".lark-doc-exporter-install.json"
-HOST_SUFFIXES: Final = {
-    "codex": Path(".agents") / "skills",
-    "claude": Path(".claude") / "skills",
+KITUP_METADATA_FILENAME: Final = ".kitup.json"
+HOST_LABELS: Final = {
+    "codex": "codex",
+    "claude-code": "claude",
 }
 
 
 @dataclass(frozen=True)
 class InstallTarget:
     host: str
-    root: Path
-    target_dir: Path
-    create_parent: bool
-
-
-@dataclass(frozen=True)
-class PlannedInstall:
-    host: str
     root: str
     target_dir: str
     action: str
     reason: str
-
-
-@dataclass(frozen=True)
-class AppliedInstall:
-    host: str
-    target_dir: Path
-    temp_root: Path
-    backup_dir: Path | None
 
 
 def bundled_skill_dir():
@@ -55,191 +42,10 @@ def bundled_skill_markdown() -> str:
 
 def host_roots(home: Path | None = None) -> dict[str, Path]:
     base_home = home if home is not None else Path.home()
-    return {name: base_home / suffix for name, suffix in HOST_SUFFIXES.items()}
-
-
-def path_entry_exists(path: Path) -> bool:
-    return path.exists(follow_symlinks=False)
-
-
-def validate_host_root(host: str, root: Path) -> None:
-    if path_entry_exists(root) and not root.is_dir():
-        raise RuntimeError(
-            f"Supported host skill root for {host} exists but is not a directory: {root}"
-        )
-
-
-def resolve_targets(host: str, home: Path | None = None) -> list[InstallTarget]:
-    roots = host_roots(home)
-    if host == "auto":
-        for name, root in roots.items():
-            if path_entry_exists(root):
-                validate_host_root(name, root)
-        targets = [
-            InstallTarget(name, root, root / SKILL_NAME, False)
-            for name, root in roots.items()
-            if path_entry_exists(root)
-        ]
-        if not targets:
-            raise RuntimeError(
-                "No supported host skill directory found under ~/.agents/skills or ~/.claude/skills. "
-                "Re-run with --host codex, --host claude, or --host all for explicit setup."
-            )
-        return targets
-
-    selected_hosts = ("codex", "claude") if host == "all" else (host,)
-    for name in selected_hosts:
-        validate_host_root(name, roots[name])
-    return [
-        InstallTarget(name, roots[name], roots[name] / SKILL_NAME, True)
-        for name in selected_hosts
-    ]
-
-
-def read_install_metadata(target_dir: Path) -> dict | None:
-    metadata_path = target_dir / INSTALL_METADATA_FILENAME
-    if not metadata_path.is_file():
-        return None
-    try:
-        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except UnicodeDecodeError, json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return payload
-
-
-def is_managed_install(target_dir: Path) -> bool:
-    metadata = read_install_metadata(target_dir)
-    return bool(metadata and metadata.get("tool") == SKILL_NAME)
-
-
-def plan_target(target: InstallTarget, force: bool) -> PlannedInstall:
-    if not path_entry_exists(target.target_dir):
-        return PlannedInstall(
-            host=target.host,
-            root=str(target.root),
-            target_dir=str(target.target_dir),
-            action="install",
-            reason="target directory does not exist",
-        )
-
-    if is_managed_install(target.target_dir):
-        return PlannedInstall(
-            host=target.host,
-            root=str(target.root),
-            target_dir=str(target.target_dir),
-            action="upgrade",
-            reason="managed install metadata found",
-        )
-
-    if force:
-        return PlannedInstall(
-            host=target.host,
-            root=str(target.root),
-            target_dir=str(target.target_dir),
-            action="overwrite",
-            reason="force requested for unmanaged target",
-        )
-
-    raise RuntimeError(
-        f"Refusing to overwrite unmanaged skill directory: {target.target_dir}. "
-        "Re-run with --force if you want to replace it."
-    )
-
-
-def write_install_metadata(stage_dir: Path, host: str) -> None:
-    payload = {
-        "tool": SKILL_NAME,
-        "version": __version__,
-        "installed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "host": host,
+    return {
+        "codex": base_home / ".agents" / "skills",
+        "claude": base_home / ".claude" / "skills",
     }
-    (stage_dir / INSTALL_METADATA_FILENAME).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-
-def replace_path(source: Path, destination: Path) -> None:
-    source.replace(destination)
-
-
-def remove_path(path: Path) -> None:
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-        return
-    shutil.rmtree(path)
-
-
-def rollback_install(applied: AppliedInstall) -> None:
-    if applied.backup_dir is None:
-        if path_entry_exists(applied.target_dir):
-            remove_path(applied.target_dir)
-        return
-
-    failed_target_dir = applied.temp_root / "failed-target"
-    if path_entry_exists(applied.target_dir):
-        replace_path(applied.target_dir, failed_target_dir)
-    try:
-        replace_path(applied.backup_dir, applied.target_dir)
-    except Exception as restore_error:
-        raise RuntimeError(
-            "Failed to roll back the installed skill directory. Recover from "
-            f"{applied.backup_dir} manually."
-        ) from restore_error
-
-
-def cleanup_install(applied: AppliedInstall) -> None:
-    shutil.rmtree(applied.temp_root, ignore_errors=True)
-
-
-def install_target(target: InstallTarget) -> AppliedInstall:
-    if target.create_parent:
-        target.root.mkdir(parents=True, exist_ok=True)
-
-    temp_root = Path(
-        tempfile.mkdtemp(prefix=f".{SKILL_NAME}.{target.host}.", dir=target.root)
-    )
-    staging_dir = temp_root / SKILL_NAME
-    backup_dir = temp_root / "backup"
-
-    try:
-        with as_file(bundled_skill_dir()) as source_dir:
-            shutil.copytree(source_dir, staging_dir)
-
-        write_install_metadata(staging_dir, target.host)
-
-        if not path_entry_exists(target.target_dir):
-            replace_path(staging_dir, target.target_dir)
-            return AppliedInstall(
-                host=target.host,
-                target_dir=target.target_dir,
-                temp_root=temp_root,
-                backup_dir=None,
-            )
-
-        replace_path(target.target_dir, backup_dir)
-        try:
-            replace_path(staging_dir, target.target_dir)
-        except Exception:
-            try:
-                replace_path(backup_dir, target.target_dir)
-            except Exception as restore_error:
-                raise RuntimeError(
-                    "Failed to replace the installed skill directory and failed to "
-                    f"restore the previous install. Recover from {backup_dir} manually."
-                ) from restore_error
-            raise
-        return AppliedInstall(
-            host=target.host,
-            target_dir=target.target_dir,
-            temp_root=temp_root,
-            backup_dir=backup_dir,
-        )
-    except Exception:
-        shutil.rmtree(temp_root, ignore_errors=True)
-        raise
 
 
 def run_skill_install(
@@ -248,41 +54,155 @@ def run_skill_install(
     dry_run: bool = False,
     home: Path | None = None,
 ) -> dict:
-    targets = resolve_targets(host=host, home=home)
-    planned = [plan_target(target, force=force) for target in targets]
+    _validate_requested_roots(host, home=home)
+    with (
+        as_file(bundled_skill_dir()) as source_dir,
+        as_file(files("lark_synced_export").joinpath("kitup_hosts.json")) as hosts_file,
+    ):
+        install_options = InstallOptions(
+            base=BaseOptions(
+                home=str(home) if home is not None else None,
+                hosts_file=str(hosts_file),
+            ),
+            app_id=SKILL_NAME,
+            skill_bundle=directory_bundle(str(source_dir)),
+            scope="user",
+            agents=_resolved_agents(host, home=home),
+            force=force,
+        )
+        plan = plan_bundled_skill(install_options)
+        _raise_for_plan_conflicts(plan)
+        targets = [asdict(item) for item in _targets_from_plan(plan)]
 
-    if dry_run:
+        if dry_run:
+            return {
+                "ok": True,
+                "dry_run": True,
+                "targets": targets,
+            }
+
+        report = install_bundled_skill(install_options)
+        _raise_for_report_errors(report)
         return {
             "ok": True,
-            "dry_run": True,
-            "targets": [asdict(item) for item in planned],
+            "dry_run": False,
+            "targets": targets,
         }
 
-    applied_targets: list[AppliedInstall] = []
-    try:
-        for target in targets:
-            applied_targets.append(install_target(target))
-    except Exception:
-        rollback_errors: list[str] = []
-        for applied in reversed(applied_targets):
-            try:
-                rollback_install(applied)
-            except Exception as rollback_error:
-                rollback_errors.append(f"{applied.host}: {rollback_error}")
-            finally:
-                cleanup_install(applied)
-        if rollback_errors:
-            raise RuntimeError(
-                "Failed to install all requested skill targets and rollback was incomplete: "
-                + "; ".join(rollback_errors)
-            )
-        raise
-    else:
-        for applied in applied_targets:
-            cleanup_install(applied)
 
-    return {
-        "ok": True,
-        "dry_run": False,
-        "targets": [asdict(item) for item in planned],
-    }
+def _resolved_agents(host: str, home: Path | None = None) -> str | list[str]:
+    if host == "auto":
+        roots = host_roots(home)
+        detected = []
+        if roots["codex"].exists():
+            detected.append("codex")
+        if roots["claude"].exists():
+            detected.append("claude-code")
+        return detected
+    if host == "codex":
+        return ["codex"]
+    if host == "claude":
+        return ["claude-code"]
+    if host == "all":
+        return ["codex", "claude-code"]
+    raise RuntimeError(f"unsupported host selector: {host}")
+
+
+def _validate_requested_roots(host: str, home: Path | None = None) -> None:
+    roots = host_roots(home)
+    if host == "auto":
+        existing_hosts = []
+        for name, root in roots.items():
+            if root.exists():
+                _validate_host_root(name, root)
+                existing_hosts.append(name)
+        if not existing_hosts:
+            raise RuntimeError(
+                "No supported host skill directory found under ~/.agents/skills or ~/.claude/skills. "
+                "Re-run with --host codex, --host claude, or --host all for explicit setup."
+            )
+        return
+
+    selected_hosts = ("codex", "claude") if host == "all" else (host,)
+    for name in selected_hosts:
+        _validate_host_root(name, roots[name])
+
+
+def _validate_host_root(host: str, root: Path) -> None:
+    if (root.exists() or root.is_symlink()) and not root.is_dir():
+        raise RuntimeError(
+            f"Supported host skill root for {host} exists but is not a directory: {root}"
+        )
+
+
+def _targets_from_plan(plan) -> list[InstallTarget]:
+    targets: list[InstallTarget] = []
+    for item in plan.installed:
+        targets.append(_normalize_target(item, action="install", reason="missing"))
+    for item in plan.updated:
+        state = _existing_target_state(Path(item.target_dir))
+        targets.append(
+            _normalize_target(
+                item,
+                action="upgrade" if state == "managed" else "overwrite",
+                reason=(
+                    "managed install metadata found"
+                    if state == "managed"
+                    else "force requested for conflicting target"
+                ),
+            )
+        )
+    for item in plan.skipped:
+        targets.append(_normalize_target(item, action="skip", reason=item.reason))
+    return sorted(targets, key=lambda item: (item.host, item.target_dir))
+
+
+def _normalize_target(item, *, action: str, reason: str) -> InstallTarget:
+    host_id = item.host_id if item.host_id is not None else (item.host_ids or [""])[0]
+    target_dir = Path(item.target_dir)
+    return InstallTarget(
+        host=HOST_LABELS.get(host_id, host_id),
+        root=str(target_dir.parent),
+        target_dir=str(target_dir),
+        action=action,
+        reason=reason,
+    )
+
+
+def _existing_target_state(target_dir: Path) -> str:
+    if not target_dir.exists():
+        return "missing"
+    metadata_path = target_dir / KITUP_METADATA_FILENAME
+    if not metadata_path.is_file():
+        return "unmanaged"
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError, json.JSONDecodeError:
+        return "unmanaged"
+    if not isinstance(payload, dict):
+        return "unmanaged"
+    if payload.get("appId") != SKILL_NAME:
+        return "owner-mismatch"
+    return "managed"
+
+
+def _raise_for_plan_conflicts(plan) -> None:
+    if plan.errors:
+        raise RuntimeError("; ".join(error.reason for error in plan.errors))
+    if not plan.conflicts:
+        return
+    conflict = plan.conflicts[0]
+    raise RuntimeError(
+        f"Refusing to overwrite conflicting skill directory: {conflict.target_dir}. "
+        "Re-run with --force if you want to replace it."
+    )
+
+
+def _raise_for_report_errors(report) -> None:
+    if report.errors:
+        raise RuntimeError("; ".join(error.reason for error in report.errors))
+    if report.conflicts:
+        conflict = report.conflicts[0]
+        raise RuntimeError(
+            f"Refusing to overwrite conflicting skill directory: {conflict.target_dir}."
+        )
