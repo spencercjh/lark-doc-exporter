@@ -90,6 +90,10 @@ Auto mode installs the companion skill into every detected supported host:
 
 Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `--dry-run` previews the install plan and target directories without writing files. Use `--force` only when you intentionally want to replace an existing unmanaged target directory.
 
+Current draft note: the installer path now runs through `kitup`. If you already
+have an older pre-`kitup` `lark-doc-exporter` skill directory without
+`.kitup.json`, the first migration may require `--force`.
+
 ## Output
 
 - `markdown` keeps the localized Markdown file in the output directory.

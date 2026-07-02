@@ -68,10 +68,16 @@ wheels = [
 ]
 
 [[package]]
+name = "kitup"
+version = "0.1.1"
+source = { git = "https://github.com/spencercjh/kitup.git?subdirectory=python&rev=a75be25#a75be258277676cf828f47aa706b3f5f13b4d6be" }
+
+[[package]]
 name = "lark-doc-exporter"
 version = "0.4.0"
 source = { editable = "." }
 dependencies = [
+    { name = "kitup" },
     { name = "markdown" },
     { name = "playwright" },
     { name = "pymupdf" },
@@ -85,6 +91,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "kitup", git = "https://github.com/spencercjh/kitup.git?subdirectory=python&rev=a75be25" },
     { name = "markdown", specifier = ">=3.7,<4" },
     { name = "playwright", specifier = ">=1.61.0,<2" },
     { name = "pymupdf", specifier = ">=1.26,<2" },
