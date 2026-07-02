@@ -6,6 +6,7 @@ import pytest
 from lark_synced_export.cli import run_main
 from lark_synced_export.skill_install import (
     KITUP_METADATA_FILENAME,
+    LEGACY_METADATA_FILENAME,
     bundled_skill_dir,
     bundled_skill_markdown,
     run_skill_install,
@@ -192,6 +193,48 @@ def test_run_skill_install_upgrades_existing_managed_install_when_hash_changes(
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )
+
+
+def test_run_skill_install_upgrades_legacy_managed_install_without_force(
+    tmp_path: Path,
+):
+    home = tmp_path / "home"
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    target_dir.mkdir(parents=True)
+    (target_dir / "SKILL.md").write_text("legacy managed content", encoding="utf-8")
+    (target_dir / LEGACY_METADATA_FILENAME).write_text(
+        json.dumps({"tool": "lark-doc-exporter", "host": "codex"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_skill_install(host="codex", force=False, dry_run=False, home=home)
+
+    metadata = json.loads(
+        (target_dir / KITUP_METADATA_FILENAME).read_text(encoding="utf-8")
+    )
+    assert result["targets"][0]["action"] == "upgrade"
+    assert metadata["appId"] == "lark-doc-exporter"
+    assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_skill_install_dry_run_preserves_legacy_install_without_writing_kitup_metadata(
+    tmp_path: Path,
+):
+    home = tmp_path / "home"
+    target_dir = home / ".agents" / "skills" / "lark-doc-exporter"
+    target_dir.mkdir(parents=True)
+    (target_dir / "SKILL.md").write_text("legacy managed content", encoding="utf-8")
+    (target_dir / LEGACY_METADATA_FILENAME).write_text(
+        json.dumps({"tool": "lark-doc-exporter", "host": "codex"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_skill_install(host="codex", force=False, dry_run=True, home=home)
+
+    assert result["targets"][0]["action"] == "upgrade"
+    assert (target_dir / KITUP_METADATA_FILENAME).exists() is False
 
 
 def test_run_skill_install_dry_run_does_not_write_files(tmp_path: Path):

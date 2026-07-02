@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
 from importlib.resources import as_file, files
 import json
+import os
 from pathlib import Path
 from typing import Final
 
@@ -17,6 +19,7 @@ from kitup import (
 
 SKILL_NAME: Final = "lark-doc-exporter"
 KITUP_METADATA_FILENAME: Final = ".kitup.json"
+LEGACY_METADATA_FILENAME: Final = ".lark-doc-exporter-install.json"
 HOST_LABELS: Final = {
     "codex": "codex",
     "claude-code": "claude",
@@ -55,39 +58,46 @@ def run_skill_install(
     home: Path | None = None,
 ) -> dict:
     _validate_requested_roots(host, home=home)
+    seeded_metadata = _seed_legacy_managed_metadata(host, home=home)
     with (
         as_file(bundled_skill_dir()) as source_dir,
         as_file(files("lark_synced_export").joinpath("kitup_hosts.json")) as hosts_file,
     ):
-        install_options = InstallOptions(
-            base=BaseOptions(
-                home=str(home) if home is not None else None,
-                hosts_file=str(hosts_file),
-            ),
-            app_id=SKILL_NAME,
-            skill_bundle=directory_bundle(str(source_dir)),
-            scope="user",
-            agents=_resolved_agents(host, home=home),
-            force=force,
-        )
-        plan = plan_bundled_skill(install_options)
-        _raise_for_plan_conflicts(plan)
-        targets = [asdict(item) for item in _targets_from_plan(plan)]
+        keep_seeded_metadata = False
+        try:
+            install_options = InstallOptions(
+                base=BaseOptions(
+                    home=str(home) if home is not None else None,
+                    hosts_file=str(hosts_file),
+                ),
+                app_id=SKILL_NAME,
+                skill_bundle=directory_bundle(str(source_dir)),
+                scope="user",
+                agents=_resolved_agents(host, home=home),
+                force=force,
+            )
+            plan = plan_bundled_skill(install_options)
+            _raise_for_plan_conflicts(plan)
+            targets = [asdict(item) for item in _targets_from_plan(plan)]
 
-        if dry_run:
+            if dry_run:
+                return {
+                    "ok": True,
+                    "dry_run": True,
+                    "targets": targets,
+                }
+
+            report = install_bundled_skill(install_options)
+            _raise_for_report_errors(report)
+            keep_seeded_metadata = True
             return {
                 "ok": True,
-                "dry_run": True,
+                "dry_run": False,
                 "targets": targets,
             }
-
-        report = install_bundled_skill(install_options)
-        _raise_for_report_errors(report)
-        return {
-            "ok": True,
-            "dry_run": False,
-            "targets": targets,
-        }
+        finally:
+            if dry_run or not keep_seeded_metadata:
+                _cleanup_seeded_metadata(seeded_metadata)
 
 
 def _resolved_agents(host: str, home: Path | None = None) -> str | list[str]:
@@ -184,6 +194,83 @@ def _existing_target_state(target_dir: Path) -> str:
     if payload.get("appId") != SKILL_NAME:
         return "owner-mismatch"
     return "managed"
+
+
+def _selected_target_dirs(host: str, home: Path | None = None) -> list[Path]:
+    roots = host_roots(home)
+    if host == "auto":
+        return [root / SKILL_NAME for root in roots.values() if root.exists()]
+    if host == "codex":
+        return [roots["codex"] / SKILL_NAME]
+    if host == "claude":
+        return [roots["claude"] / SKILL_NAME]
+    if host == "all":
+        return [roots["codex"] / SKILL_NAME, roots["claude"] / SKILL_NAME]
+    raise RuntimeError(f"unsupported host selector: {host}")
+
+
+def _seed_legacy_managed_metadata(host: str, home: Path | None = None) -> list[Path]:
+    seeded: list[Path] = []
+    for target_dir in _selected_target_dirs(host, home=home):
+        if not target_dir.exists():
+            continue
+        metadata_path = target_dir / KITUP_METADATA_FILENAME
+        if metadata_path.exists():
+            continue
+        legacy_metadata = _read_legacy_install_metadata(target_dir)
+        if legacy_metadata.get("tool") != SKILL_NAME:
+            continue
+
+        payload = {
+            "schemaVersion": 1,
+            "appId": SKILL_NAME,
+            "skillName": SKILL_NAME,
+            "source": "bundled",
+            "hash": _compute_target_bundle_digest(target_dir),
+        }
+        metadata_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        seeded.append(metadata_path)
+    return seeded
+
+
+def _cleanup_seeded_metadata(paths: list[Path]) -> None:
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
+def _read_legacy_install_metadata(target_dir: Path) -> dict:
+    metadata_path = target_dir / LEGACY_METADATA_FILENAME
+    if not metadata_path.is_file():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError, json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _compute_target_bundle_digest(target_dir: Path) -> str:
+    digest = hashlib.sha256()
+    for current_root, dirnames, filenames in os.walk(target_dir):
+        dirnames[:] = sorted(name for name in dirnames if not _skip_metadata_name(name))
+        for filename in sorted(filenames):
+            if _skip_metadata_name(filename):
+                continue
+            source = Path(current_root) / filename
+            relative = source.relative_to(target_dir).as_posix()
+            digest.update(relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(source.read_bytes())
+            digest.update(b"\0")
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _skip_metadata_name(name: str) -> bool:
+    return (
+        name in {".git", ".DS_Store", KITUP_METADATA_FILENAME, LEGACY_METADATA_FILENAME}
+        or name.endswith(".swp")
+        or name.endswith("~")
+    )
 
 
 def _raise_for_plan_conflicts(plan) -> None:
