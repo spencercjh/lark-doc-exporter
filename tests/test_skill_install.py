@@ -38,9 +38,10 @@ def test_bundled_skill_markdown_mentions_native_first_commands_and_prereqs():
 def test_pyproject_packages_third_party_notice():
     payload = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
-    assert "THIRD_PARTY_NOTICES.md" in payload["tool"]["setuptools"]["package-data"][
-        "lark_synced_export"
-    ]
+    assert (
+        "THIRD_PARTY_NOTICES.md"
+        in payload["tool"]["setuptools"]["package-data"]["lark_synced_export"]
+    )
 
 
 def test_run_skill_install_auto_uses_existing_hosts_only(tmp_path: Path):

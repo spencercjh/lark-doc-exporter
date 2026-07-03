@@ -59,7 +59,9 @@ def check_pdf_runtime() -> DoctorCheck:
 
 def check_feishu_docx_markdown() -> DoctorCheck:
     try:
-        selection = resolve_markdown_provider("https://example.feishu.cn/docx/placeholder")
+        selection = resolve_markdown_provider(
+            "https://example.feishu.cn/docx/placeholder"
+        )
     except Exception as exc:
         return DoctorCheck(
             name="feishu-docx-markdown",

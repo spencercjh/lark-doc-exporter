@@ -798,9 +798,7 @@ def test_export_document_native_failure_keeps_markdown_and_warning(
     assert result["warnings"][0].startswith("native PDF footer post-process failed")
 
 
-def test_export_document_reports_legacy_provider_selection(
-    monkeypatch, tmp_path: Path
-):
+def test_export_document_reports_legacy_provider_selection(monkeypatch, tmp_path: Path):
     stage_dir = tmp_path / "stage"
     stage_dir.mkdir()
     raw_markdown_path = stage_dir / "demo.raw.md"
@@ -940,7 +938,9 @@ def test_export_document_uses_feishu_docx_without_temp_doc_for_markdown_only(
     monkeypatch.setattr(
         "lark_synced_export.exporter.create_temp_doc",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("create_temp_doc should not run for markdown-only feishu-docx")
+            AssertionError(
+                "create_temp_doc should not run for markdown-only feishu-docx"
+            )
         ),
     )
 
