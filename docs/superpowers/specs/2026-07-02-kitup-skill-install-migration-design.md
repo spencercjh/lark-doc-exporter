@@ -13,8 +13,8 @@ Date: 2026-07-02
 - metadata file (`.lark-doc-exporter-install.json`)
 - rollback / replace logic
 
-At the same time, `kitup` now has a Python SDK on branch `alice/python-sdk`
-that standardizes:
+At the same time, `kitup` now has a merged Python SDK on upstream `main` that
+standardizes:
 
 - bundle validation
 - host-aware target resolution
@@ -22,10 +22,10 @@ that standardizes:
 - `.kitup.json` ownership metadata
 - dry-run planning
 
-Spencer wants a `lark-doc-exporter` PR that proves the Python `kitup` branch is
-usable in a real client, even before `kitup` is merged/released. That means this
-PR can temporarily depend on an unreleased git ref as long as the integration is
-real and validated.
+Spencer wants a `lark-doc-exporter` PR that proves the Python `kitup` SDK is
+usable in a real client. The SDK is now merged upstream, but not yet adopted
+through a packaged release here, so this PR can temporarily depend on the
+upstream git ref as long as the integration is real and validated.
 
 ## Goals
 
@@ -47,7 +47,7 @@ real and validated.
 - Converting `lark-doc-exporter` to the full interactive `kitup` workflow UX.
 - Expanding this CLI to `scope=user|project`.
 - Adding new lifecycle commands such as `skill uninstall`.
-- Waiting for a published `kitup` release before opening the PR.
+- Waiting for a packaged `kitup-sdk` release before opening the PR.
 - Preserving the old `.lark-doc-exporter-install.json` format as the steady-state
   ownership contract.
 
@@ -82,7 +82,7 @@ Reuse small `kitup` pieces but preserve most local install logic.
 
 Why not choose it:
 
-- does not really prove `kitup` #13 is sufficient
+- does not really prove the merged `kitup` Python SDK is sufficient
 - leaves most of the duplicate installer implementation in place
 - weakens the demonstration value of the migration PR
 
@@ -90,14 +90,15 @@ Why not choose it:
 
 ### 1. Temporary dependency strategy
 
-This PR will temporarily depend on the unreleased Python `kitup` package via a
-direct git reference to Spencer's fork / exact commit from `kitup` PR #13.
+This PR will temporarily depend on the upstream Python `kitup-sdk` package via
+a direct git reference to `lathe-cli/kitup` `main`.
 
 That keeps the integration honest:
 
 - `lark-doc-exporter` imports the real package, not a copied local module
 - reviewers can verify the actual embedding code path
-- the dependency can be swapped to a released version later once `kitup` lands
+- the dependency can be swapped to a packaged release later once the upstream
+  release line catches up
 
 ### 2. Host model for this tool
 

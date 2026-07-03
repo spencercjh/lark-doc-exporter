@@ -17,7 +17,7 @@
 - Create: `src/lark_synced_export/kitup_hosts.json`
 - Test: `tests/test_skill_install.py`
 
-- [x] Add a temporary direct dependency on the Python `kitup` package from Spencer's fork / exact commit used for validation.
+- [x] Add a temporary direct dependency on the Python `kitup-sdk` package from upstream `lathe-cli/kitup` `main` while the packaged release catches up.
 - [x] Add a tiny host spec JSON file containing only `codex` and `claude-code`, with host roots chosen to preserve the current `lark-doc-exporter` behavior.
 - [x] Run `uv sync` to verify the dependency resolves in this repo.
 
@@ -73,6 +73,6 @@
 - [x] Commit the branch changes with signed conventional commits.
 - [ ] Push the branch and update the draft PR against `lark-doc-exporter`.
 - [ ] In the PR/thread summary, call out:
-  - temporary dependency on `kitup` PR #13 commit
+  - temporary dependency on upstream `kitup-sdk` from `lathe-cli/kitup` `main`
   - what behavior was intentionally preserved
   - what metadata / migration behavior changed
