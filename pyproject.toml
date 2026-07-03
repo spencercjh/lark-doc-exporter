@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
   "kitup-sdk @ git+https://github.com/lathe-cli/kitup.git@main#subdirectory=python",
+  "feishu-docx @ git+https://github.com/spencercjh/feishu-docx@7517b56",
   "markdown>=3.7,<4",
   "playwright>=1.61.0,<2",
   "pymupdf>=1.26,<2",
@@ -37,6 +38,7 @@ where = ["src"]
 lark_synced_export = [
   "kitup_hosts.json",
   "hosts.schema.json",
+  "THIRD_PARTY_NOTICES.md",
   "themes/*.css",
   "skill_assets/lark-doc-exporter/SKILL.md",
 ]

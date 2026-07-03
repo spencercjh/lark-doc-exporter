@@ -4,6 +4,7 @@ import subprocess
 from lark_synced_export.cli import run_main
 from lark_synced_export.doctor import (
     DoctorCheck,
+    check_feishu_docx_markdown,
     check_lark_cli,
     check_pdf_runtime,
     run_doctor,
@@ -70,6 +71,15 @@ def test_run_doctor_keeps_chromium_check_but_only_requires_lark_cli(monkeypatch)
             name="chromium", ok=False, detail="missing", required=False
         ),
     )
+    monkeypatch.setattr(
+        "lark_synced_export.doctor.check_feishu_docx_markdown",
+        lambda: DoctorCheck(
+            name="feishu-docx-markdown",
+            ok=False,
+            detail="legacy fallback",
+            required=False,
+        ),
+    )
 
     payload = run_doctor()
 
@@ -77,6 +87,12 @@ def test_run_doctor_keeps_chromium_check_but_only_requires_lark_cli(monkeypatch)
     assert payload["checks"] == [
         {"name": "lark-cli", "ok": True, "detail": "ok", "required": True},
         {"name": "chromium", "ok": False, "detail": "missing", "required": False},
+        {
+            "name": "feishu-docx-markdown",
+            "ok": False,
+            "detail": "legacy fallback",
+            "required": False,
+        },
     ]
 
 
@@ -88,6 +104,15 @@ def test_run_doctor_fails_when_required_lark_cli_check_fails(monkeypatch):
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_pdf_runtime",
         lambda: DoctorCheck(name="chromium", ok=True, detail="ok", required=False),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.doctor.check_feishu_docx_markdown",
+        lambda: DoctorCheck(
+            name="feishu-docx-markdown",
+            ok=True,
+            detail="ready",
+            required=False,
+        ),
     )
 
     payload = run_doctor()
@@ -107,3 +132,20 @@ def test_check_pdf_runtime_is_optional_and_mentions_native_mode(monkeypatch):
     assert result.required is False
     assert "rendered PDF output" in result.detail
     assert "Native PDF does not require Chromium" in result.detail
+
+
+def test_check_feishu_docx_markdown_reports_ready_selection(monkeypatch):
+    monkeypatch.setattr(
+        "lark_synced_export.doctor.resolve_markdown_provider",
+        lambda _doc: type(
+            "Selection",
+            (),
+            {"provider": "feishu-docx", "detail": "auto:selected from config"},
+        )(),
+    )
+
+    result = check_feishu_docx_markdown()
+
+    assert result.ok is True
+    assert result.required is False
+    assert "auto:selected from config" in result.detail

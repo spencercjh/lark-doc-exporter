@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 import shutil
 import subprocess
 
+from .feishu_docx_bridge import resolve_markdown_provider
 from .pdf_runtime import check_chromium_ready
 
 
@@ -56,8 +57,38 @@ def check_pdf_runtime() -> DoctorCheck:
     return DoctorCheck(name="chromium", ok=ok, detail=detail, required=False)
 
 
+def check_feishu_docx_markdown() -> DoctorCheck:
+    try:
+        selection = resolve_markdown_provider("https://example.feishu.cn/docx/placeholder")
+    except Exception as exc:
+        return DoctorCheck(
+            name="feishu-docx-markdown",
+            ok=False,
+            detail=f"Preferred Markdown provider is not ready: {exc}",
+            required=False,
+        )
+
+    if selection.provider == "feishu-docx":
+        return DoctorCheck(
+            name="feishu-docx-markdown",
+            ok=True,
+            detail=f"Preferred Markdown provider is ready ({selection.detail}).",
+            required=False,
+        )
+
+    return DoctorCheck(
+        name="feishu-docx-markdown",
+        ok=False,
+        detail=(
+            "Preferred Markdown provider is unavailable; legacy markdown flow "
+            f"will run ({selection.detail})."
+        ),
+        required=False,
+    )
+
+
 def run_doctor() -> dict:
-    checks = [check_lark_cli(), check_pdf_runtime()]
+    checks = [check_lark_cli(), check_pdf_runtime(), check_feishu_docx_markdown()]
     return {
         "ok": all(check.ok for check in checks if check.required),
         "checks": [asdict(check) for check in checks],

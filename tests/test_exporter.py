@@ -796,3 +796,167 @@ def test_export_document_native_failure_keeps_markdown_and_warning(
         "demo.native-raw.pdf"
     )
     assert result["warnings"][0].startswith("native PDF footer post-process failed")
+
+
+def test_export_document_reports_legacy_provider_selection(
+    monkeypatch, tmp_path: Path
+):
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    raw_markdown_path = stage_dir / "demo.raw.md"
+    raw_markdown_path.write_text("# Demo\n", encoding="utf-8")
+    theme_css = tmp_path / "theme.css"
+    theme_css.write_text(":root { --accent: #123456; }", encoding="utf-8")
+
+    class DummyTempDir:
+        def __enter__(self):
+            return str(stage_dir)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.resolve_markdown_provider",
+        lambda _doc: type(
+            "Selection",
+            (),
+            {
+                "provider": "legacy",
+                "detail": "auto:fallback to legacy (missing FEISHU_APP_ID/FEISHU_APP_SECRET)",
+                "credentials": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.tempfile.TemporaryDirectory",
+        lambda *a, **k: DummyTempDir(),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.fetch_full_xml",
+        lambda _doc, _identity: "<title>Demo</title>",
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.expand_synced_references",
+        lambda xml, _identity: (xml, 0),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.normalize_xml_for_create",
+        lambda xml, suffix: (xml, "Demo"),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.create_temp_doc",
+        lambda _xml, _stage, _identity: ("tmp-token", "https://example.com/doc"),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.export_markdown",
+        lambda _token, _stage, _stem, _identity: raw_markdown_path,
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.localize_markdown_images",
+        lambda _src, dst, _assets: dst.write_text("# Demo\n", encoding="utf-8") or 0,
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.resolve_theme_css", lambda _theme: theme_css
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.render_markdown_body",
+        lambda _markdown_path, body_html: body_html.write_text(
+            "<h1>Demo</h1>", encoding="utf-8"
+        ),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.render_html_to_pdf",
+        lambda _html, output_pdf: output_pdf.write_bytes(b"%PDF-1.4\n"),
+    )
+
+    result = export_document(
+        doc_ref="demo",
+        output_dir=tmp_path / "out",
+        formats=["markdown", "pdf"],
+        title_suffix="",
+        file_stem="demo",
+        keep_temp_doc=False,
+        theme_name="default",
+        override_css=None,
+        pdf_mode="rendered",
+    )
+
+    assert result["markdown_provider"] == "legacy"
+    assert result["markdown_provider_detail"].startswith("auto:fallback")
+    assert result["temp_doc_token"] == "tmp-token"
+
+
+def test_export_document_uses_feishu_docx_without_temp_doc_for_markdown_only(
+    monkeypatch, tmp_path: Path
+):
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    raw_markdown_path = stage_dir / "demo.md"
+    raw_markdown_path.write_text("![image](demo/pic.png)\n", encoding="utf-8")
+    raw_assets_dir = stage_dir / "demo"
+    raw_assets_dir.mkdir()
+    (raw_assets_dir / "pic.png").write_bytes(b"png")
+
+    class DummyTempDir:
+        def __enter__(self):
+            return str(stage_dir)
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.resolve_markdown_provider",
+        lambda _doc: type(
+            "Selection",
+            (),
+            {
+                "provider": "feishu-docx",
+                "detail": "auto:selected from env",
+                "credentials": object(),
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.tempfile.TemporaryDirectory",
+        lambda *a, **k: DummyTempDir(),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.export_markdown_with_feishu_docx",
+        lambda _doc, _stage, _stem, _credentials: (raw_markdown_path, raw_assets_dir),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.normalize_feishu_docx_assets",
+        lambda _src, _raw_assets, dst, assets: (
+            assets.mkdir(parents=True, exist_ok=True),
+            (assets / "pic.png").write_bytes(b"png"),
+            dst.write_text("![image](images/pic.png)\n", encoding="utf-8"),
+            1,
+        )[-1],
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.create_temp_doc",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("create_temp_doc should not run for markdown-only feishu-docx")
+        ),
+    )
+
+    result = export_document(
+        doc_ref="https://example.feishu.cn/docx/abc123",
+        output_dir=tmp_path / "out",
+        formats=["markdown"],
+        title_suffix="",
+        file_stem="demo",
+        keep_temp_doc=False,
+        theme_name="default",
+        override_css=None,
+    )
+
+    assert result["markdown_provider"] == "feishu-docx"
+    assert result["expanded_references"] is None
+    assert result["temp_doc_token"] is None
+    assert result["temp_doc_url"] is None
+    assert result["outputs"]["markdown"].endswith("demo.md")
