@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 
 from lark_synced_export.cli import run_main
 from lark_synced_export.doctor import (
@@ -149,3 +150,24 @@ def test_check_feishu_docx_markdown_reports_ready_selection(monkeypatch):
     assert result.ok is True
     assert result.required is False
     assert "auto:selected from config" in result.detail
+
+
+def test_check_feishu_docx_markdown_warns_that_legacy_is_transitional(monkeypatch):
+    monkeypatch.delenv("FEISHU_APP_ID", raising=False)
+    monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
+    monkeypatch.delenv("LARK_DOC_EXPORTER_MARKDOWN_PROVIDER", raising=False)
+    monkeypatch.setattr(
+        "lark_synced_export.feishu_docx_bridge.import_feishu_docx_exporter",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.feishu_docx_bridge.FEISHU_DOCX_CONFIG_PATH",
+        Path("/definitely/missing/config.json"),
+    )
+
+    result = check_feishu_docx_markdown()
+
+    assert result.ok is False
+    assert result.required is False
+    assert "deprecated legacy compatibility mode" in result.detail
+    assert "next release" in result.detail

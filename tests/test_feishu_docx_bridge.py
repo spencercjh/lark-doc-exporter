@@ -7,6 +7,7 @@ import pytest
 
 from lark_synced_export.feishu_docx_bridge import (
     FEISHU_DOCX_CONFIG_PATH,
+    LEGACY_DEPRECATION_NOTICE,
     MARKDOWN_PROVIDER_ENV,
     FeishuDocxCredentials,
     normalize_feishu_docx_assets,
@@ -58,6 +59,42 @@ def test_resolve_markdown_provider_auto_falls_back_when_credentials_missing(
     assert selection.credentials is None
 
 
+def test_resolve_markdown_provider_auto_falls_back_when_config_unreadable(
+    monkeypatch, tmp_path: Path
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"app_id": "cfg_app", "app_secret": "cfg_secret"}),
+        encoding="utf-8",
+    )
+    real_read_text = Path.read_text
+
+    def fake_read_text(self: Path, *args, **kwargs):
+        if self == config_path:
+            raise PermissionError("denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.delenv("FEISHU_APP_ID", raising=False)
+    monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
+    monkeypatch.delenv(MARKDOWN_PROVIDER_ENV, raising=False)
+    monkeypatch.setattr(
+        "lark_synced_export.feishu_docx_bridge.FEISHU_DOCX_CONFIG_PATH",
+        config_path,
+    )
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    monkeypatch.setattr(
+        "lark_synced_export.feishu_docx_bridge.import_feishu_docx_exporter",
+        lambda: object(),
+    )
+
+    selection = resolve_markdown_provider("https://example.feishu.cn/docx/abc123")
+
+    assert selection.provider == "legacy"
+    assert "feishu-docx credentials unavailable" in selection.detail
+    assert LEGACY_DEPRECATION_NOTICE in selection.detail
+    assert selection.credentials is None
+
+
 def test_resolve_markdown_provider_forced_feishu_docx_requires_credentials(
     monkeypatch,
 ):
@@ -75,6 +112,21 @@ def test_resolve_markdown_provider_forced_feishu_docx_requires_credentials(
 
     with pytest.raises(RuntimeError, match="requires FEISHU_APP_ID/FEISHU_APP_SECRET"):
         resolve_markdown_provider("https://example.feishu.cn/docx/abc123")
+
+
+def test_resolve_markdown_provider_forced_feishu_docx_rejects_token_only_doc_ref(
+    monkeypatch,
+):
+    monkeypatch.setenv(MARKDOWN_PROVIDER_ENV, "feishu-docx")
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_app")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "cli_secret")
+    monkeypatch.setattr(
+        "lark_synced_export.feishu_docx_bridge.import_feishu_docx_exporter",
+        lambda: object(),
+    )
+
+    with pytest.raises(RuntimeError, match="requires a URL-shaped doc ref"):
+        resolve_markdown_provider("IkCedJjFIoypyzxwXjacRSy9nBg")
 
 
 def test_resolve_markdown_provider_reads_config_file(monkeypatch, tmp_path: Path):
@@ -129,7 +181,8 @@ def test_resolve_markdown_provider_auto_falls_back_for_token_only_doc_ref(
     selection = resolve_markdown_provider("IkCedJjFIoypyzxwXjacRSy9nBg")
 
     assert selection.provider == "legacy"
-    assert "requires URL-shaped doc ref" in selection.detail
+    assert "requires a URL-shaped doc ref" in selection.detail
+    assert LEGACY_DEPRECATION_NOTICE in selection.detail
 
 
 def test_normalize_feishu_docx_assets_moves_links_into_images(tmp_path: Path):

@@ -80,8 +80,9 @@ def check_feishu_docx_markdown() -> DoctorCheck:
         name="feishu-docx-markdown",
         ok=False,
         detail=(
-            "Preferred Markdown provider is unavailable; legacy markdown flow "
-            f"will run ({selection.detail})."
+            "Preferred Markdown provider is unavailable; deprecated legacy "
+            "compatibility mode will run and is scheduled for removal in the "
+            f"next release ({selection.detail})."
         ),
         required=False,
     )

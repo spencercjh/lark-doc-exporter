@@ -8,7 +8,8 @@ description: Use when a user wants to export a Feishu/Lark doc into localized Ma
 Use this tool when a user wants to:
 
 - export a Feishu/Lark doc into localized Markdown
-- prefer `feishu-docx` for richer Markdown blocks while keeping a legacy fallback
+- prefer `feishu-docx` for richer Markdown blocks while using `legacy` only as
+  a deprecated transition fallback
 - use native Feishu PDF mode as the default recommended PDF path
 - render a local PDF only when they explicitly need `--theme` / `--css`
 - check whether `lark-cli` is ready, or whether Chromium is ready for rendered mode
@@ -17,7 +18,7 @@ Use this tool when a user wants to:
 ## Prerequisites
 
 - `lark-cli` available on `PATH` with a user session configured for native PDF and legacy fallback
-- `feishu-docx` becomes the preferred Markdown provider when `FEISHU_APP_ID` / `FEISHU_APP_SECRET` or `~/.feishu-docx/config.json` are configured
+- `feishu-docx` becomes the preferred Markdown provider when `FEISHU_APP_ID` / `FEISHU_APP_SECRET` or a readable `~/.feishu-docx/config.json` are configured
 - the `lark-doc-exporter` command installed if the user wants repeated local use
 - native mode does not require Chromium
 - Chromium is needed only for rendered mode, and you can install it with `uvx --from playwright playwright install chromium`
@@ -49,7 +50,7 @@ Use rendered mode only when the user explicitly needs local theme/CSS control.
 lark-doc-exporter doctor
 ```
 
-Checks whether `lark-cli` is ready, whether Chromium is available for rendered mode, and whether the preferred `feishu-docx` Markdown provider is ready or will fall back to legacy.
+Checks whether `lark-cli` is ready, whether Chromium is available for rendered mode, and whether the preferred `feishu-docx` Markdown provider is ready or will fall back to the deprecated `legacy` bridge scheduled for removal in the next release.
 
 ```bash
 lark-doc-exporter skill install --dry-run
@@ -74,9 +75,10 @@ Installs this companion skill into supported AI hosts. Auto mode installs only i
 ## Guidance
 
 - Prefer `--pdf-mode native` unless the user explicitly needs local styling control.
-- Prefer the default `auto` Markdown-provider mode for URL-shaped docs when `FEISHU_APP_ID` / `FEISHU_APP_SECRET` (or `~/.feishu-docx/config.json`) are available.
-- Use `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=legacy` when the user only has a bare token, needs the exact old behavior, or is debugging provider differences.
+- Prefer the default `auto` Markdown-provider mode for URL-shaped docs when `FEISHU_APP_ID` / `FEISHU_APP_SECRET` (or a readable `~/.feishu-docx/config.json`) are available.
+- Treat `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=legacy` as transitional only: it is a deprecated compatibility bridge, it is not receiving new maintenance, and it will be removed in the next release.
+- Bare tokens only fall back to `legacy` in `auto`; if the user forces `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=feishu-docx`, the exporter fails fast until they switch to a URL-shaped doc ref.
 - Use rendered mode only when `--theme` / `--css` are the real requirement.
 - Use `doctor` before the first rendered export on a new machine, or when Chromium setup is unclear.
 - Use `--dry-run` before `skill install` when the user wants to verify target paths.
-- If the user asks about attribution or licensing for the integrated provider, point them to `THIRD_PARTY_NOTICES.md`.
+- If the user asks about attribution or licensing for the integrated provider, point them to the packaged `src/lark_synced_export/THIRD_PARTY_NOTICES.md`.

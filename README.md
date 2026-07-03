@@ -32,17 +32,25 @@ are available.
 Provider selection is controlled by `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER`:
 
 - `auto` (default): prefer `feishu-docx`, otherwise fall back to the legacy
-  temp-doc + `lark-cli` Markdown path
+  temp-doc + `lark-cli` Markdown path for this transition release only
 - `feishu-docx`: require the new provider and fail fast if credentials are missing
-- `legacy`: force the previous temp-doc + `lark-cli` Markdown path
+  or the doc ref is not URL-shaped
+- `legacy`: force the previous temp-doc + `lark-cli` Markdown path, but only as
+  a deprecated compatibility bridge that is not receiving new maintenance and
+  will be removed in the next release
 
 Notes:
 
-- bare Feishu tokens still fall back to `legacy`, because `feishu-docx` needs a
-  URL-shaped doc ref to infer the document type
+- bare Feishu tokens fall back to `legacy` only in `auto`, because `feishu-docx`
+  needs a URL-shaped doc ref to infer the document type; forced
+  `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=feishu-docx` fails fast instead
+- migrate now toward URL-shaped doc refs plus `FEISHU_APP_ID` /
+  `FEISHU_APP_SECRET` (or a readable `~/.feishu-docx/config.json`), because the
+  `legacy` bridge will be removed in the next release
 - native PDF still uses the temp-doc + `lark-cli` route even when Markdown came
   from `feishu-docx`
-- the integrated `feishu-docx` attribution lives in `THIRD_PARTY_NOTICES.md`
+- the packaged `feishu-docx` attribution ships in
+  `src/lark_synced_export/THIRD_PARTY_NOTICES.md`
 
 ## Quick Start
 
@@ -84,9 +92,10 @@ lark-doc-exporter doctor
 
 `doctor` always checks `lark-cli`, and it also reports Chromium readiness for
 `--pdf-mode rendered`. It now also reports whether the preferred `feishu-docx`
-Markdown provider is ready or whether the run will stay on the legacy fallback.
-Native mode does not require Chromium, so missing Chromium no longer makes the
-overall doctor result fail.
+Markdown provider is ready or whether the run will stay on the deprecated
+`legacy` fallback scheduled for removal in the next release. Native mode does
+not require Chromium, so missing Chromium no longer makes the overall doctor
+result fail.
 
 ## One-off Run
 
@@ -183,8 +192,8 @@ uv run lark-doc-exporter doctor
 ## Notes
 
 - Markdown now prefers `feishu-docx` and only uses the temporary Feishu doc
-  when the run stays on `legacy` or when native PDF still needs the expanded
-  temp doc.
+  when the run stays on the deprecated `legacy` bridge or when native PDF still
+  needs the expanded temp doc.
 - When a temp doc is created, it is deleted by default after the export step.
   Use `--keep-temp-doc` only when you need to inspect that intermediate
   document.

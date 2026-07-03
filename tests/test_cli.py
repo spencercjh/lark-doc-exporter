@@ -115,3 +115,14 @@ def test_run_main_returns_one_and_prints_json_for_controlled_native_failure(
     assert payload["ai_footer_postprocess"]["status"] == "unsafe_geometry"
     assert payload["warnings"][0].startswith("native PDF footer post-process failed")
     assert "native PDF footer post-process failed" in captured.err
+
+
+def test_run_main_help_mentions_provider_env_and_legacy_deprecation(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        run_main(["--help"])
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=auto|feishu-docx|legacy" in captured.out
+    assert "deprecated compatibility bridge" in captured.out
+    assert "next release" in captured.out
