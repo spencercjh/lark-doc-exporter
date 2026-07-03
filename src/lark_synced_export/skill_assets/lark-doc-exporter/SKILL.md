@@ -81,4 +81,4 @@ Installs this companion skill into supported AI hosts. Auto mode installs only i
 - Use rendered mode only when `--theme` / `--css` are the real requirement.
 - Use `doctor` before the first rendered export on a new machine, or when Chromium setup is unclear.
 - Use `--dry-run` before `skill install` when the user wants to verify target paths.
-- If the user asks about attribution or licensing for the integrated provider, point them to the packaged `src/lark_synced_export/THIRD_PARTY_NOTICES.md`.
+- If the user asks about attribution or licensing for the integrated provider, point them to the packaged `lark_synced_export/THIRD_PARTY_NOTICES.md` notice inside the installed module.

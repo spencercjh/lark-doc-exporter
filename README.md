@@ -49,8 +49,8 @@ Notes:
   `legacy` bridge will be removed in the next release
 - native PDF still uses the temp-doc + `lark-cli` route even when Markdown came
   from `feishu-docx`
-- the packaged `feishu-docx` attribution ships in
-  `src/lark_synced_export/THIRD_PARTY_NOTICES.md`
+- the packaged `feishu-docx` attribution ships as the bundled
+  `lark_synced_export/THIRD_PARTY_NOTICES.md` notice inside the installed package
 
 ## Quick Start
 
