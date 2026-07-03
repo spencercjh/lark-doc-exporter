@@ -1,0 +1,22 @@
+{
+  "$schema": "./hosts.schema.json",
+  "schemaVersion": 1,
+  "hosts": [
+    {
+      "id": "codex",
+      "displayName": "Codex",
+      "projectSkillsDirs": [".agents/skills"],
+      "userSkillsDirs": ["~/.agents/skills"],
+      "detect": ["~/.agents/skills"],
+      "status": "verified"
+    },
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "projectSkillsDirs": [".claude/skills"],
+      "userSkillsDirs": ["~/.claude/skills"],
+      "detect": ["~/.claude/skills"],
+      "status": "verified"
+    }
+  ]
+}

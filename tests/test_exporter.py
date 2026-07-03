@@ -2,9 +2,11 @@ from pathlib import Path
 
 import pytest
 
+import lark_synced_export.exporter as exporter_module
 from lark_synced_export.exporter import (
     LARK_CLI_IDENTITY_ENV,
     build_render_html,
+    export_doc,
     export_document,
     normalize_xml_for_create,
     resolve_lark_cli_identity,
@@ -35,6 +37,163 @@ def test_resolve_lark_cli_identity_rejects_invalid_override(monkeypatch):
 
 def test_slugify_filename_collapses_spaces_and_invalid_chars():
     assert slugify_filename('A / B: "Spec"') == "A-B-Spec"
+
+
+def test_export_doc_returns_saved_path_without_async_follow_up(
+    monkeypatch, tmp_path: Path
+):
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        commands.append(tuple(cmd))
+        assert cwd == tmp_path
+        return {"data": {"saved_path": str(tmp_path / "demo.pdf")}}
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+
+    result = export_doc(
+        temp_doc_token="doc-token",
+        output_dir=tmp_path / "exports",
+        file_stem="demo",
+        formats=["pdf"],
+        lark_cli_identity="bot",
+    )
+
+    assert result == {"pdf": str(tmp_path / "demo.pdf")}
+    assert commands == [
+        (
+            "lark-cli",
+            "drive",
+            "+export",
+            "--as",
+            "bot",
+            "--token",
+            "doc-token",
+            "--doc-type",
+            "docx",
+            "--file-extension",
+            "pdf",
+            "--file-name",
+            "demo.pdf",
+            "--output-dir",
+            "exports",
+            "--overwrite",
+        )
+    ]
+
+
+def test_export_doc_polls_task_result_and_downloads_async_export(
+    monkeypatch, tmp_path: Path
+):
+    commands: list[tuple[str, ...]] = []
+    task_result_calls = 0
+    sleeps: list[float] = []
+
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        nonlocal task_result_calls
+        commands.append(tuple(cmd))
+        if cmd[2] == "+export":
+            assert cwd == tmp_path
+            return {
+                "data": {
+                    "ready": False,
+                    "ticket": "ticket-123",
+                    "timed_out": True,
+                }
+            }
+        if cmd[2] == "+task_result":
+            task_result_calls += 1
+            if task_result_calls == 1:
+                return {"data": {"ready": False, "failed": False}}
+            return {
+                "data": {
+                    "ready": True,
+                    "failed": False,
+                    "file_token": "exported-file-token",
+                }
+            }
+        if cmd[2] == "+export-download":
+            assert cwd == tmp_path
+            return {"data": {"saved_path": str(tmp_path / "exports" / "demo.pdf")}}
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+    monkeypatch.setattr(
+        exporter_module.time,
+        "sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    result = export_doc(
+        temp_doc_token="doc-token",
+        output_dir=tmp_path / "exports",
+        file_stem="demo",
+        formats=["pdf"],
+        lark_cli_identity="bot",
+    )
+
+    assert result == {"pdf": str(tmp_path / "exports" / "demo.pdf")}
+    assert sleeps == [2.0]
+    assert commands == [
+        (
+            "lark-cli",
+            "drive",
+            "+export",
+            "--as",
+            "bot",
+            "--token",
+            "doc-token",
+            "--doc-type",
+            "docx",
+            "--file-extension",
+            "pdf",
+            "--file-name",
+            "demo.pdf",
+            "--output-dir",
+            "exports",
+            "--overwrite",
+        ),
+        (
+            "lark-cli",
+            "drive",
+            "+task_result",
+            "--as",
+            "bot",
+            "--scenario",
+            "export",
+            "--ticket",
+            "ticket-123",
+            "--file-token",
+            "doc-token",
+        ),
+        (
+            "lark-cli",
+            "drive",
+            "+task_result",
+            "--as",
+            "bot",
+            "--scenario",
+            "export",
+            "--ticket",
+            "ticket-123",
+            "--file-token",
+            "doc-token",
+        ),
+        (
+            "lark-cli",
+            "drive",
+            "+export-download",
+            "--as",
+            "bot",
+            "--file-token",
+            "exported-file-token",
+            "--file-name",
+            "demo.pdf",
+            "--output-dir",
+            "exports",
+            "--overwrite",
+        ),
+    ]
 
 
 def test_build_render_html_includes_theme_and_override(tmp_path: Path):
