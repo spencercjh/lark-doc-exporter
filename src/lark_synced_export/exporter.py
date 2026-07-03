@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import urllib.request
 from html import escape
 from pathlib import Path
@@ -225,6 +226,8 @@ def run_json(cmd: list[str], cwd: Path | None = None) -> dict:
 
 
 LARK_CLI_IDENTITY_ENV = "LARK_DOC_EXPORTER_IDENTITY"
+EXPORT_TASK_POLL_INTERVAL_SECONDS = 2.0
+EXPORT_TASK_POLL_TIMEOUT_SECONDS = 120.0
 
 
 def resolve_lark_cli_identity() -> str:
@@ -459,7 +462,82 @@ def export_doc(
             "--overwrite",
         ]
         payload = run_json(cmd, cwd=export_cwd)
-        results[fmt] = payload["data"]["saved_path"]
+        data = payload.get("data", {})
+        saved_path = data.get("saved_path")
+        if saved_path:
+            results[fmt] = saved_path
+            continue
+
+        ticket = data.get("ticket")
+        if not ticket:
+            raise RuntimeError(
+                "lark-cli drive +export returned neither saved_path nor ticket: "
+                f"{json.dumps(payload, ensure_ascii=False)}"
+            )
+
+        deadline = time.monotonic() + EXPORT_TASK_POLL_TIMEOUT_SECONDS
+        last_task_payload: dict | None = None
+        while time.monotonic() < deadline:
+            task_payload = run_json(
+                [
+                    "lark-cli",
+                    "drive",
+                    "+task_result",
+                    "--as",
+                    lark_cli_identity,
+                    "--scenario",
+                    "export",
+                    "--ticket",
+                    str(ticket),
+                    "--file-token",
+                    temp_doc_token,
+                ]
+            )
+            last_task_payload = task_payload
+            task_data = task_payload.get("data", {})
+            if task_data.get("failed"):
+                raise RuntimeError(
+                    "lark-cli drive +task_result reported export failure: "
+                    f"{json.dumps(task_payload, ensure_ascii=False)}"
+                )
+            if task_data.get("ready"):
+                exported_file_token = task_data.get("file_token")
+                if not exported_file_token:
+                    raise RuntimeError(
+                        "lark-cli drive +task_result reported ready without file_token: "
+                        f"{json.dumps(task_payload, ensure_ascii=False)}"
+                    )
+                download_payload = run_json(
+                    [
+                        "lark-cli",
+                        "drive",
+                        "+export-download",
+                        "--as",
+                        lark_cli_identity,
+                        "--file-token",
+                        exported_file_token,
+                        "--file-name",
+                        file_name,
+                        "--output-dir",
+                        export_leaf,
+                        "--overwrite",
+                    ],
+                    cwd=export_cwd,
+                )
+                download_saved_path = download_payload.get("data", {}).get("saved_path")
+                if not download_saved_path:
+                    raise RuntimeError(
+                        "lark-cli drive +export-download returned no saved_path: "
+                        f"{json.dumps(download_payload, ensure_ascii=False)}"
+                    )
+                results[fmt] = download_saved_path
+                break
+            time.sleep(EXPORT_TASK_POLL_INTERVAL_SECONDS)
+        else:
+            raise RuntimeError(
+                "timed out waiting for lark-cli export task to complete: "
+                f"ticket={ticket}, last_payload={json.dumps(last_task_payload or payload, ensure_ascii=False)}"
+            )
 
     return results
 
