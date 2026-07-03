@@ -36,6 +36,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 lark_synced_export = [
   "kitup_hosts.json",
+  "hosts.schema.json",
   "themes/*.css",
   "skill_assets/lark-doc-exporter/SKILL.md",
 ]

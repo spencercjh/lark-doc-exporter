@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Pin `kitup` and package the migration inputs
+## Task 1: Pin `kitup` and package the migration inputs
 
 **Files:**
 - Modify: `pyproject.toml`
@@ -21,7 +21,7 @@
 - [x] Add a tiny host spec JSON file containing only `codex` and `claude-code`, with host roots chosen to preserve the current `lark-doc-exporter` behavior.
 - [x] Run `uv sync` to verify the dependency resolves in this repo.
 
-### Task 2: Replace the local installer implementation with a `kitup` adapter
+## Task 2: Replace the local installer implementation with a `kitup` adapter
 
 **Files:**
 - Modify: `src/lark_synced_export/skill_install.py`
@@ -36,7 +36,7 @@
   - normalize `kitup` reports into a stable JSON result payload
 - [x] Keep non-interactive CLI behavior: `skill install` should remain a direct command, not a prompt-driven workflow.
 
-### Task 3: Update tests to the new ownership and result contract
+## Task 3: Update tests to the new ownership and result contract
 
 **Files:**
 - Modify: `tests/test_skill_install.py`
@@ -53,7 +53,7 @@
   - legacy managed-install migration to `.kitup.json`
 - [x] Remove tests that only exercise deleted local rollback internals, or replace them with equivalent adapter-level behavior tests if still meaningful.
 
-### Task 4: Document the draft dependency and migration behavior
+## Task 4: Document the draft dependency and migration behavior
 
 **Files:**
 - Modify: `README.md`
@@ -63,7 +63,7 @@
 - [x] Keep end-user CLI examples stable unless the JSON/behavior change forces wording updates.
 - [x] Update the migration note after the legacy metadata bridge landed: old managed installs should upgrade without requiring `--force`.
 
-### Task 5: Validate and prepare the PR
+## Task 5: Validate and prepare the PR
 
 **Files:**
 - Modify: draft PR body / review summary (not a repo file)

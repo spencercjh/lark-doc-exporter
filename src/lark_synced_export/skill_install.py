@@ -58,34 +58,49 @@ def run_skill_install(
     home: Path | None = None,
 ) -> dict:
     _validate_requested_roots(host, home=home)
-    seeded_metadata = _seed_legacy_managed_metadata(host, home=home)
     with (
         as_file(bundled_skill_dir()) as source_dir,
         as_file(files("lark_synced_export").joinpath("kitup_hosts.json")) as hosts_file,
     ):
+        install_options = InstallOptions(
+            base=BaseOptions(
+                home=str(home) if home is not None else None,
+                hosts_file=str(hosts_file),
+            ),
+            app_id=SKILL_NAME,
+            skill_bundle=directory_bundle(str(source_dir)),
+            scope="user",
+            agents=_resolved_agents(host, home=home),
+            force=force,
+        )
+        if dry_run:
+            plan = plan_bundled_skill(install_options)
+            legacy_targets = _legacy_dry_run_targets(
+                plan,
+                host,
+                source_digest=_compute_target_bundle_digest(Path(source_dir)),
+                home=home,
+            )
+            _raise_for_plan_conflicts(
+                plan,
+                ignored_target_dirs={item.target_dir for item in legacy_targets},
+            )
+            targets = [
+                asdict(item)
+                for item in _targets_from_plan(plan, extra_targets=legacy_targets)
+            ]
+            return {
+                "ok": True,
+                "dry_run": True,
+                "targets": targets,
+            }
+
+        seeded_metadata = _seed_legacy_managed_metadata(host, home=home)
         keep_seeded_metadata = False
         try:
-            install_options = InstallOptions(
-                base=BaseOptions(
-                    home=str(home) if home is not None else None,
-                    hosts_file=str(hosts_file),
-                ),
-                app_id=SKILL_NAME,
-                skill_bundle=directory_bundle(str(source_dir)),
-                scope="user",
-                agents=_resolved_agents(host, home=home),
-                force=force,
-            )
             plan = plan_bundled_skill(install_options)
             _raise_for_plan_conflicts(plan)
             targets = [asdict(item) for item in _targets_from_plan(plan)]
-
-            if dry_run:
-                return {
-                    "ok": True,
-                    "dry_run": True,
-                    "targets": targets,
-                }
 
             report = install_bundled_skill(install_options)
             _raise_for_report_errors(report)
@@ -133,6 +148,9 @@ def _validate_requested_roots(host: str, home: Path | None = None) -> None:
             )
         return
 
+    if host not in {"codex", "claude", "all"}:
+        raise RuntimeError(f"unsupported host selector: {host}")
+
     selected_hosts = ("codex", "claude") if host == "all" else (host,)
     for name in selected_hosts:
         _validate_host_root(name, roots[name])
@@ -145,7 +163,9 @@ def _validate_host_root(host: str, root: Path) -> None:
         )
 
 
-def _targets_from_plan(plan) -> list[InstallTarget]:
+def _targets_from_plan(
+    plan, extra_targets: list[InstallTarget] | None = None
+) -> list[InstallTarget]:
     targets: list[InstallTarget] = []
     for item in plan.installed:
         targets.append(_normalize_target(item, action="install", reason="missing"))
@@ -164,6 +184,8 @@ def _targets_from_plan(plan) -> list[InstallTarget]:
         )
     for item in plan.skipped:
         targets.append(_normalize_target(item, action="skip", reason=item.reason))
+    if extra_targets:
+        targets.extend(extra_targets)
     return sorted(targets, key=lambda item: (item.host, item.target_dir))
 
 
@@ -196,17 +218,74 @@ def _existing_target_state(target_dir: Path) -> str:
     return "managed"
 
 
-def _selected_target_dirs(host: str, home: Path | None = None) -> list[Path]:
+def _selected_target_dirs_by_host(
+    host: str, home: Path | None = None
+) -> list[tuple[str, Path]]:
     roots = host_roots(home)
     if host == "auto":
-        return [root / SKILL_NAME for root in roots.values() if root.exists()]
+        return [
+            (name, root / SKILL_NAME) for name, root in roots.items() if root.exists()
+        ]
     if host == "codex":
-        return [roots["codex"] / SKILL_NAME]
+        return [("codex", roots["codex"] / SKILL_NAME)]
     if host == "claude":
-        return [roots["claude"] / SKILL_NAME]
+        return [("claude", roots["claude"] / SKILL_NAME)]
     if host == "all":
-        return [roots["codex"] / SKILL_NAME, roots["claude"] / SKILL_NAME]
+        return [
+            ("codex", roots["codex"] / SKILL_NAME),
+            ("claude", roots["claude"] / SKILL_NAME),
+        ]
     raise RuntimeError(f"unsupported host selector: {host}")
+
+
+def _selected_target_dirs(host: str, home: Path | None = None) -> list[Path]:
+    return [
+        target_dir for _, target_dir in _selected_target_dirs_by_host(host, home=home)
+    ]
+
+
+def _legacy_dry_run_targets(
+    plan,
+    host: str,
+    *,
+    source_digest: str,
+    home: Path | None = None,
+) -> list[InstallTarget]:
+    selected_hosts = {
+        str(target_dir): host_name
+        for host_name, target_dir in _selected_target_dirs_by_host(host, home=home)
+    }
+    targets: list[InstallTarget] = []
+    for item in plan.conflicts:
+        host_name = selected_hosts.get(item.target_dir)
+        if host_name is None:
+            continue
+        target_dir = Path(item.target_dir)
+        if not _is_legacy_managed_target(target_dir):
+            continue
+        action = (
+            "skip"
+            if _compute_target_bundle_digest(target_dir) == source_digest
+            else "upgrade"
+        )
+        reason = "unchanged" if action == "skip" else "managed install metadata found"
+        targets.append(
+            InstallTarget(
+                host=host_name,
+                root=str(target_dir.parent),
+                target_dir=str(target_dir),
+                action=action,
+                reason=reason,
+            )
+        )
+    return targets
+
+
+def _is_legacy_managed_target(target_dir: Path) -> bool:
+    if (target_dir / KITUP_METADATA_FILENAME).exists():
+        return False
+    legacy_metadata = _read_legacy_install_metadata(target_dir)
+    return legacy_metadata.get("tool") == SKILL_NAME
 
 
 def _seed_legacy_managed_metadata(host: str, home: Path | None = None) -> list[Path]:
@@ -273,12 +352,19 @@ def _skip_metadata_name(name: str) -> bool:
     )
 
 
-def _raise_for_plan_conflicts(plan) -> None:
+def _raise_for_plan_conflicts(
+    plan, ignored_target_dirs: set[str] | None = None
+) -> None:
     if plan.errors:
         raise RuntimeError("; ".join(error.reason for error in plan.errors))
-    if not plan.conflicts:
+    conflicts = [
+        item
+        for item in plan.conflicts
+        if ignored_target_dirs is None or item.target_dir not in ignored_target_dirs
+    ]
+    if not conflicts:
         return
-    conflict = plan.conflicts[0]
+    conflict = conflicts[0]
     raise RuntimeError(
         f"Refusing to overwrite conflicting skill directory: {conflict.target_dir}. "
         "Re-run with --force if you want to replace it."
@@ -291,5 +377,6 @@ def _raise_for_report_errors(report) -> None:
     if report.conflicts:
         conflict = report.conflicts[0]
         raise RuntimeError(
-            f"Refusing to overwrite conflicting skill directory: {conflict.target_dir}."
+            f"Refusing to overwrite conflicting skill directory: {conflict.target_dir}. "
+            "Re-run with --force if you want to replace it."
         )

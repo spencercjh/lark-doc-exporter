@@ -172,6 +172,13 @@ def test_run_skill_install_explicit_host_rejects_dangling_root_symlink(tmp_path:
         run_skill_install(host="codex", force=False, dry_run=False, home=home)
 
 
+def test_run_skill_install_rejects_invalid_host_selector(tmp_path: Path):
+    home = tmp_path / "home"
+
+    with pytest.raises(RuntimeError, match="unsupported host selector"):
+        run_skill_install(host="cursor", force=False, dry_run=True, home=home)
+
+
 def test_run_skill_install_upgrades_existing_managed_install_when_hash_changes(
     tmp_path: Path,
 ):
@@ -217,6 +224,7 @@ def test_run_skill_install_upgrades_legacy_managed_install_without_force(
     assert "lark-doc-exporter doctor" in (target_dir / "SKILL.md").read_text(
         encoding="utf-8"
     )
+    assert (target_dir / LEGACY_METADATA_FILENAME).exists() is False
 
 
 def test_run_skill_install_dry_run_preserves_legacy_install_without_writing_kitup_metadata(
