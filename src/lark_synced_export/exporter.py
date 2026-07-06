@@ -232,7 +232,9 @@ def run_json(cmd: list[str], cwd: Path | None = None) -> dict:
 
 LARK_CLI_IDENTITY_ENV = "LARK_DOC_EXPORTER_IDENTITY"
 EXPORT_TASK_POLL_INTERVAL_SECONDS = 2.0
-EXPORT_TASK_POLL_TIMEOUT_SECONDS = 120.0
+# Native export tasks can take longer on GitHub-hosted runners than on local
+# machines; keep the poll budget comfortably above observed CI latency.
+EXPORT_TASK_POLL_TIMEOUT_SECONDS = 300.0
 
 
 def resolve_lark_cli_identity() -> str:
