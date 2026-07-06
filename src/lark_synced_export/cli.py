@@ -16,7 +16,11 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
         epilog=(
             "Other commands:\n"
             "  doctor\n"
-            "  skill install [--host {auto,codex,claude,all}] [--force] [--dry-run]"
+            "  skill install [--host {auto,codex,claude,all}] [--force] [--dry-run]\n"
+            "\n"
+            "Markdown provider environment:\n"
+            "  LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=auto|feishu-docx|legacy\n"
+            "  `legacy` is a deprecated compatibility bridge and will be removed in the next release."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

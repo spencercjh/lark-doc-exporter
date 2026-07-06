@@ -12,6 +12,11 @@ from html import escape
 from pathlib import Path
 
 from .callout_markdown import normalize_markdown_callouts_file
+from .feishu_docx_bridge import (
+    export_markdown_with_feishu_docx,
+    normalize_feishu_docx_assets,
+    resolve_markdown_provider,
+)
 from .mention_markdown import normalize_markdown_user_mentions_file
 from .markdown_runtime import render_markdown_body
 from .native_pdf_footer import FAILURE_STATUSES, postprocess_native_pdf
@@ -227,7 +232,9 @@ def run_json(cmd: list[str], cwd: Path | None = None) -> dict:
 
 LARK_CLI_IDENTITY_ENV = "LARK_DOC_EXPORTER_IDENTITY"
 EXPORT_TASK_POLL_INTERVAL_SECONDS = 2.0
-EXPORT_TASK_POLL_TIMEOUT_SECONDS = 120.0
+# Native export tasks can take longer on GitHub-hosted runners than on local
+# machines; keep the poll budget comfortably above observed CI latency.
+EXPORT_TASK_POLL_TIMEOUT_SECONDS = 300.0
 
 
 def resolve_lark_cli_identity() -> str:
@@ -575,22 +582,52 @@ def export_native_pdf(
 
 
 def delete_temp_doc(temp_doc_token: str, lark_cli_identity: str) -> None:
-    run_json(
-        [
-            "lark-cli",
-            "drive",
-            "+delete",
-            "--as",
-            lark_cli_identity,
-            "--file-token",
-            temp_doc_token,
-            "--type",
-            "docx",
-            "--yes",
-            "--format",
-            "json",
-        ]
+    try:
+        run_json(
+            [
+                "lark-cli",
+                "drive",
+                "+delete",
+                "--as",
+                lark_cli_identity,
+                "--file-token",
+                temp_doc_token,
+                "--type",
+                "docx",
+                "--yes",
+                "--format",
+                "json",
+            ]
+        )
+    except subprocess.CalledProcessError as exc:
+        try:
+            payload = json.loads(exc.stdout)
+        except json.JSONDecodeError:
+            raise
+
+        error = payload.get("error")
+        if (
+            isinstance(error, dict)
+            and error.get("code") == 1061007
+            and "file has been delete" in str(error.get("message", "")).lower()
+        ):
+            return
+        raise
+
+
+def prepare_temp_doc_stage(
+    doc_ref: str,
+    title_suffix: str,
+    stage_dir: Path,
+    lark_cli_identity: str,
+) -> tuple[int, str, str, str]:
+    raw_xml = fetch_full_xml(doc_ref, lark_cli_identity)
+    expanded_xml, expanded_count = expand_synced_references(raw_xml, lark_cli_identity)
+    normalized_xml, temp_title = normalize_xml_for_create(expanded_xml, title_suffix)
+    temp_doc_token, temp_doc_url = create_temp_doc(
+        normalized_xml, stage_dir, lark_cli_identity
     )
+    return expanded_count, temp_title, temp_doc_token, temp_doc_url
 
 
 def suffix_from_content_type(content_type: str) -> str:
@@ -685,90 +722,136 @@ def export_document(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     lark_cli_identity = resolve_lark_cli_identity()
-
-    raw_xml = fetch_full_xml(doc_ref, lark_cli_identity)
-    expanded_xml, expanded_count = expand_synced_references(raw_xml, lark_cli_identity)
-    normalized_xml, temp_title = normalize_xml_for_create(expanded_xml, title_suffix)
-    final_stem = file_stem or slugify_filename(temp_title)
+    provider = resolve_markdown_provider(doc_ref)
 
     outputs: dict[str, str] = {}
     warnings: list[str] = []
     ai_footer_postprocess: dict | None = None
     localized_image_count = 0
     theme_css_path: Path | None = None
+    expanded_count: int | None = None
+    temp_doc_token: str | None = None
+    temp_doc_url: str | None = None
+    temp_doc_deleted = True
+    temp_title = file_stem or "export"
+    final_stem = file_stem
 
     with tempfile.TemporaryDirectory(prefix="lark-doc-exporter-") as tmpdir:
         stage_dir = Path(tmpdir)
-        temp_doc_token, temp_doc_url = create_temp_doc(
-            normalized_xml,
-            stage_dir,
-            lark_cli_identity,
-        )
-        try:
-            needs_markdown_artifacts = "markdown" in formats or (
-                "pdf" in formats and pdf_mode == "rendered"
-            )
-            localized_markdown_path: Path | None = None
+        localized_markdown_path: Path | None = None
 
-            if needs_markdown_artifacts:
+        needs_markdown_artifacts = "markdown" in formats or (
+            "pdf" in formats and pdf_mode == "rendered"
+        )
+        if needs_markdown_artifacts:
+            render_root = output_dir if "markdown" in formats else stage_dir
+            assets_dir = render_root / "images"
+
+            if provider.provider == "feishu-docx":
+                raw_markdown_path, raw_assets_dir = export_markdown_with_feishu_docx(
+                    doc_ref,
+                    stage_dir,
+                    final_stem,
+                    provider.credentials,
+                )
+                temp_title = raw_markdown_path.stem
+                final_stem = final_stem or raw_markdown_path.stem
+                localized_markdown_path = render_root / f"{final_stem}.md"
+                localized_image_count = normalize_feishu_docx_assets(
+                    raw_markdown_path,
+                    raw_assets_dir,
+                    localized_markdown_path,
+                    assets_dir,
+                )
+            else:
+                (
+                    expanded_count,
+                    temp_title,
+                    temp_doc_token,
+                    temp_doc_url,
+                ) = prepare_temp_doc_stage(
+                    doc_ref,
+                    title_suffix,
+                    stage_dir,
+                    lark_cli_identity,
+                )
+                final_stem = final_stem or slugify_filename(temp_title)
+                localized_markdown_path = render_root / f"{final_stem}.md"
                 raw_markdown_path = export_markdown(
                     temp_doc_token,
                     stage_dir,
                     f"{final_stem}.raw",
                     lark_cli_identity,
                 )
-                render_root = output_dir if "markdown" in formats else stage_dir
-                localized_markdown_path = render_root / f"{final_stem}.md"
-                assets_dir = render_root / "images"
                 localized_image_count = localize_markdown_images(
                     raw_markdown_path, localized_markdown_path, assets_dir
                 )
-                normalize_markdown_user_mentions_file(localized_markdown_path)
-                normalize_markdown_callouts_file(localized_markdown_path)
+                temp_doc_deleted = not keep_temp_doc
 
-                if "markdown" in formats:
-                    outputs["markdown"] = str(localized_markdown_path)
+            normalize_markdown_user_mentions_file(localized_markdown_path)
+            normalize_markdown_callouts_file(localized_markdown_path)
 
-            if "pdf" in formats:
-                output_pdf = output_dir / f"{final_stem}.pdf"
-                if pdf_mode == "rendered":
-                    assert localized_markdown_path is not None
-                    theme_css_path = resolve_theme_css(theme_name)
-                    body_html = stage_dir / "body.html"
-                    render_html = stage_dir / "render.html"
-                    render_markdown_body(localized_markdown_path, body_html)
-                    build_render_html(
-                        body_html, render_html, temp_title, theme_css_path, override_css
-                    )
-                    render_html_to_pdf(render_html, output_pdf)
-                    outputs["pdf"] = str(output_pdf)
-                else:
-                    raw_native_pdf = export_native_pdf(
+            if "markdown" in formats:
+                outputs["markdown"] = str(localized_markdown_path)
+
+        if "pdf" in formats:
+            output_stem = final_stem or "export"
+            output_pdf = output_dir / f"{output_stem}.pdf"
+            if pdf_mode == "rendered":
+                assert localized_markdown_path is not None
+                theme_css_path = resolve_theme_css(theme_name)
+                body_html = stage_dir / "body.html"
+                render_html = stage_dir / "render.html"
+                render_markdown_body(localized_markdown_path, body_html)
+                build_render_html(
+                    body_html, render_html, temp_title, theme_css_path, override_css
+                )
+                render_html_to_pdf(render_html, output_pdf)
+                outputs["pdf"] = str(output_pdf)
+            else:
+                if temp_doc_token is None:
+                    (
+                        expanded_count,
+                        temp_title,
                         temp_doc_token,
+                        temp_doc_url,
+                    ) = prepare_temp_doc_stage(
+                        doc_ref,
+                        title_suffix,
                         stage_dir,
-                        f"{final_stem}.native-raw",
                         lark_cli_identity,
                     )
-                    preserved_raw_pdf = output_dir / f"{final_stem}.native-raw.pdf"
-                    if output_pdf.exists():
-                        output_pdf.unlink()
-                    if preserved_raw_pdf.exists():
-                        preserved_raw_pdf.unlink()
-                    footer_result = postprocess_native_pdf(
-                        raw_native_pdf, output_pdf, preserved_raw_pdf
-                    )
-                    ai_footer_postprocess = {
-                        "status": footer_result.status,
-                        "raw_pdf_path": footer_result.raw_pdf_path,
-                        "warning": footer_result.warning,
-                    }
-                    if footer_result.warning:
-                        warnings.append(footer_result.warning)
-                    if footer_result.final_pdf_path:
-                        outputs["pdf"] = footer_result.final_pdf_path
-        finally:
-            if not keep_temp_doc:
-                delete_temp_doc(temp_doc_token, lark_cli_identity)
+                    final_stem = final_stem or slugify_filename(temp_title)
+                    output_stem = final_stem
+                    output_pdf = output_dir / f"{output_stem}.pdf"
+                    temp_doc_deleted = not keep_temp_doc
+
+                raw_native_pdf = export_native_pdf(
+                    temp_doc_token,
+                    stage_dir,
+                    f"{output_stem}.native-raw",
+                    lark_cli_identity,
+                )
+                preserved_raw_pdf = output_dir / f"{output_stem}.native-raw.pdf"
+                if output_pdf.exists():
+                    output_pdf.unlink()
+                if preserved_raw_pdf.exists():
+                    preserved_raw_pdf.unlink()
+                footer_result = postprocess_native_pdf(
+                    raw_native_pdf, output_pdf, preserved_raw_pdf
+                )
+                ai_footer_postprocess = {
+                    "status": footer_result.status,
+                    "raw_pdf_path": footer_result.raw_pdf_path,
+                    "warning": footer_result.warning,
+                }
+                if footer_result.warning:
+                    warnings.append(footer_result.warning)
+                if footer_result.final_pdf_path:
+                    outputs["pdf"] = footer_result.final_pdf_path
+
+        if temp_doc_token and not keep_temp_doc:
+            delete_temp_doc(temp_doc_token, lark_cli_identity)
 
     native_failure = (
         "pdf" in formats
@@ -782,7 +865,7 @@ def export_document(
         "doc": doc_ref,
         "expanded_references": expanded_count,
         "temp_doc_token": temp_doc_token,
-        "temp_doc_deleted": not keep_temp_doc,
+        "temp_doc_deleted": temp_doc_deleted,
         "temp_doc_url": temp_doc_url,
         "localized_images": localized_image_count,
         "theme": theme_name if "pdf" in formats and pdf_mode == "rendered" else None,
@@ -790,6 +873,8 @@ def export_document(
         "ai_footer_postprocess": ai_footer_postprocess,
         "warnings": warnings,
         "outputs": outputs,
+        "markdown_provider": provider.provider,
+        "markdown_provider_detail": provider.detail,
         "pdf_renderer": (
             "feishu-native"
             if "pdf" in formats and pdf_mode == "native"
