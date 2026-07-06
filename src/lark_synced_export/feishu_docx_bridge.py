@@ -8,17 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-MARKDOWN_PROVIDER_ENV = "LARK_DOC_EXPORTER_MARKDOWN_PROVIDER"
 FEISHU_DOCX_CONFIG_PATH = Path.home() / ".feishu-docx" / "config.json"
-SUPPORTED_PROVIDER_MODES = {"auto", "feishu-docx", "legacy"}
 URL_DOC_REF_RE = re.compile(
     r"^https?://.+/(?:doc|docx|wiki|sheet|sheets|base)/[A-Za-z0-9]+"
 )
 IMAGE_LINK_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
-LEGACY_DEPRECATION_NOTICE = (
-    "legacy is a deprecated compatibility bridge and will be removed in the "
-    "next release"
-)
 
 
 @dataclass(frozen=True)
@@ -28,23 +22,6 @@ class FeishuDocxCredentials:
     auth_mode: str
     is_lark: bool
     source: str
-
-
-@dataclass(frozen=True)
-class MarkdownProviderSelection:
-    provider: str
-    detail: str
-    credentials: FeishuDocxCredentials | None = None
-
-
-def import_feishu_docx_exporter():
-    from feishu_docx.core.exporter import FeishuExporter
-
-    return FeishuExporter
-
-
-def legacy_detail(prefix: str) -> str:
-    return f"{prefix}; {LEGACY_DEPRECATION_NOTICE}"
 
 
 def _parse_bool_env(raw: str | None) -> bool:
@@ -63,8 +40,12 @@ def _normalize_auth_mode(raw: str | None) -> str:
     return mode if mode in {"tenant", "oauth"} else "tenant"
 
 
-def is_feishu_docx_compatible_doc_ref(doc_ref: str) -> bool:
-    return bool(URL_DOC_REF_RE.match(doc_ref.strip()))
+def validate_markdown_doc_ref(doc_ref: str) -> None:
+    if not URL_DOC_REF_RE.match(doc_ref.strip()):
+        raise RuntimeError(
+            "markdown and native PDF exports require a full document URL-shaped "
+            "Feishu/Lark document ref"
+        )
 
 
 def discover_feishu_docx_credentials(doc_ref: str) -> FeishuDocxCredentials | None:
@@ -85,7 +66,7 @@ def discover_feishu_docx_credentials(doc_ref: str) -> FeishuDocxCredentials | No
 
     try:
         payload = json.loads(FEISHU_DOCX_CONFIG_PATH.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
 
     app_id = payload.get("app_id")
@@ -102,69 +83,24 @@ def discover_feishu_docx_credentials(doc_ref: str) -> FeishuDocxCredentials | No
     )
 
 
-def _resolve_mode() -> str:
-    mode = (os.getenv(MARKDOWN_PROVIDER_ENV) or "auto").strip().lower()
-    if mode not in SUPPORTED_PROVIDER_MODES:
-        raise ValueError(
-            f"{MARKDOWN_PROVIDER_ENV} must be one of "
-            f"{', '.join(sorted(SUPPORTED_PROVIDER_MODES))}; got {mode!r}"
-        )
-    return mode
-
-
-def resolve_markdown_provider(doc_ref: str) -> MarkdownProviderSelection:
-    mode = _resolve_mode()
-    if mode == "legacy":
-        return MarkdownProviderSelection(
-            provider="legacy",
-            detail=legacy_detail("forced:legacy"),
-        )
-
-    if not is_feishu_docx_compatible_doc_ref(doc_ref):
-        detail = legacy_detail(
-            "requires a URL-shaped doc ref; bare-token fallback only exists in auto"
-        )
-        if mode == "feishu-docx":
-            raise RuntimeError(f"feishu-docx provider {detail}")
-        return MarkdownProviderSelection(
-            provider="legacy",
-            detail=f"auto:fallback to legacy ({detail})",
-        )
-
+def require_feishu_docx_exporter():
     try:
-        import_feishu_docx_exporter()
+        from feishu_docx.core.exporter import FeishuExporter
     except ImportError as exc:
-        if mode == "feishu-docx":
-            raise RuntimeError(
-                "feishu-docx provider requires the feishu-docx package"
-            ) from exc
-        return MarkdownProviderSelection(
-            provider="legacy",
-            detail=legacy_detail(
-                "auto:fallback to legacy (feishu-docx package unavailable)"
-            ),
-        )
+        raise RuntimeError(
+            "feishu-docx markdown export requires the feishu-docx package"
+        ) from exc
+    return FeishuExporter
 
+
+def require_feishu_docx_credentials(doc_ref: str) -> FeishuDocxCredentials:
     credentials = discover_feishu_docx_credentials(doc_ref)
     if credentials is None:
-        if mode == "feishu-docx":
-            raise RuntimeError(
-                "feishu-docx provider requires FEISHU_APP_ID/FEISHU_APP_SECRET "
-                "or a readable ~/.feishu-docx/config.json"
-            )
-        return MarkdownProviderSelection(
-            provider="legacy",
-            detail=legacy_detail(
-                "auto:fallback to legacy (feishu-docx credentials unavailable)"
-            ),
+        raise RuntimeError(
+            "feishu-docx markdown export requires FEISHU_APP_ID/FEISHU_APP_SECRET "
+            "or a readable ~/.feishu-docx/config.json"
         )
-
-    source_detail = "env" if credentials.source == "env" else "config"
-    return MarkdownProviderSelection(
-        provider="feishu-docx",
-        detail=f"auto:selected from {source_detail}",
-        credentials=credentials,
-    )
+    return credentials
 
 
 def export_markdown_with_feishu_docx(
@@ -173,7 +109,7 @@ def export_markdown_with_feishu_docx(
     file_stem: str | None,
     credentials: FeishuDocxCredentials,
 ) -> tuple[Path, Path | None]:
-    FeishuExporter = import_feishu_docx_exporter()
+    FeishuExporter = require_feishu_docx_exporter()
     exporter = FeishuExporter(
         app_id=credentials.app_id,
         app_secret=credentials.app_secret,
