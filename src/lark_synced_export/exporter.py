@@ -15,14 +15,11 @@ from .callout_markdown import normalize_markdown_callouts_file
 from .feishu_docx_bridge import (
     export_markdown_with_feishu_docx,
     normalize_feishu_docx_assets,
-    resolve_markdown_provider,
+    require_feishu_docx_credentials,
+    validate_markdown_doc_ref,
 )
 from .mention_markdown import normalize_markdown_user_mentions_file
-from .markdown_runtime import render_markdown_body
 from .native_pdf_footer import FAILURE_STATUSES, postprocess_native_pdf
-from .pdf_runtime import render_html_to_pdf
-
-THEMES_DIR = Path(__file__).with_name("themes")
 
 REF_RE = re.compile(
     r'<synced_reference\b[^>]*src-block-id="([^"]+)"[^>]*src-token="([^"]+)"[^>]*>\s*</synced_reference>',
@@ -39,190 +36,6 @@ URL_ATTR_RE = re.compile(r'\s+url="([^"]*)"')
 IMG_TAG_RE = re.compile(r"<img\b([^>]*)/?>", re.S)
 SOURCE_TAG_RE = re.compile(r"<source\b([^>]*)/?>", re.S)
 MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\((https://[^)\s]+)\)")
-
-BASE_CSS = """
-@page {
-  size: A4;
-  margin: 16mm 14mm;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: var(--text, #1f2328);
-  background: var(--surface, #ffffff);
-  line-height: 1.6;
-  font-size: 13px;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-
-main {
-  width: 100%;
-  max-width: 920px;
-  margin: 0 auto;
-}
-
-h1, h2, h3, h4 {
-  page-break-after: avoid;
-  break-after: avoid;
-  line-height: 1.3;
-  margin-top: 1.5em;
-  margin-bottom: 0.6em;
-}
-
-h1 {
-  font-size: 26px;
-  border-bottom: 1px solid var(--border, #d0d7de);
-  padding-bottom: 0.35em;
-  margin-top: 0;
-}
-
-h2 {
-  font-size: 20px;
-  border-bottom: 1px solid var(--border, #d0d7de);
-  padding-bottom: 0.25em;
-}
-
-h3 {
-  font-size: 16px;
-}
-
-p, ul, ol {
-  margin: 0 0 0.9em;
-}
-
-a {
-  color: var(--accent, #0969da);
-  text-decoration: none;
-  word-break: break-all;
-}
-
-code {
-  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
-  background: var(--code-bg, #f6f8fa);
-  padding: 0.15em 0.35em;
-  border-radius: 4px;
-  font-size: 0.92em;
-}
-
-pre {
-  background: var(--code-bg, #f6f8fa);
-  border: 1px solid var(--border, #d0d7de);
-  border-radius: 8px;
-  padding: 12px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  page-break-inside: avoid;
-  break-inside: avoid;
-  margin: 0 0 1em;
-}
-
-pre code {
-  background: transparent;
-  padding: 0;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  margin: 0 0 1em;
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-
-th, td {
-  border: 1px solid var(--border, #d0d7de);
-  padding: 8px 10px;
-  vertical-align: top;
-  text-align: left;
-  word-break: break-word;
-}
-
-th {
-  background: var(--surface-subtle, #f6f8fa);
-  font-weight: 600;
-}
-
-img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-  margin: 0.75em auto 1em;
-  border: 1px solid var(--border, #d0d7de);
-  border-radius: 8px;
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-
-blockquote {
-  margin: 0 0 1em;
-  padding: 0.1em 1em;
-  color: var(--muted, #59636e);
-  border-left: 4px solid var(--border, #d0d7de);
-}
-
-.callout {
-  margin: 0 0 1em;
-  padding: 0.9em 1em;
-  border-left: 4px solid var(--callout-note-border, var(--border, #d0d7de));
-  border-radius: 10px;
-  background: var(--callout-note-bg, var(--surface-subtle, #f6f8fa));
-  color: var(--callout-note-fg, var(--text, #1f2328));
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-
-.callout > :first-child {
-  margin-top: 0;
-}
-
-.callout > :last-child {
-  margin-bottom: 0;
-}
-
-.callout--note {
-  border-left-color: var(--callout-note-border, var(--border, #d0d7de));
-  background: var(--callout-note-bg, var(--surface-subtle, #f6f8fa));
-  color: var(--callout-note-fg, var(--text, #1f2328));
-}
-
-.callout--tip {
-  border-left-color: var(--callout-tip-border, var(--accent, #0969da));
-  background: var(--callout-tip-bg, var(--surface-subtle, #f6f8fa));
-  color: var(--callout-tip-fg, var(--text, #1f2328));
-}
-
-.callout--important {
-  border-left-color: var(--callout-important-border, var(--accent, #0969da));
-  background: var(--callout-important-bg, var(--surface-subtle, #f6f8fa));
-  color: var(--callout-important-fg, var(--text, #1f2328));
-}
-
-.callout--warning {
-  border-left-color: var(--callout-warning-border, var(--accent, #0969da));
-  background: var(--callout-warning-bg, var(--surface-subtle, #f6f8fa));
-  color: var(--callout-warning-fg, var(--text, #1f2328));
-}
-
-.callout--caution {
-  border-left-color: var(--callout-caution-border, var(--accent, #0969da));
-  background: var(--callout-caution-bg, var(--surface-subtle, #f6f8fa));
-  color: var(--callout-caution-fg, var(--text, #1f2328));
-}
-
-hr {
-  border: 0;
-  border-top: 1px solid var(--border, #d0d7de);
-  margin: 1.2em 0;
-}
-""".strip()
 
 
 def run_json(cmd: list[str], cwd: Path | None = None) -> dict:
@@ -549,22 +362,6 @@ def export_doc(
     return results
 
 
-def export_markdown(
-    temp_doc_token: str,
-    output_dir: Path,
-    file_stem: str,
-    lark_cli_identity: str,
-) -> Path:
-    result = export_doc(
-        temp_doc_token,
-        output_dir,
-        file_stem,
-        formats=["markdown"],
-        lark_cli_identity=lark_cli_identity,
-    )
-    return Path(result["markdown"])
-
-
 def export_native_pdf(
     temp_doc_token: str,
     output_dir: Path,
@@ -663,45 +460,76 @@ def localize_markdown_images(
     return image_count
 
 
-def resolve_theme_css(theme_name: str) -> Path:
-    theme_path = THEMES_DIR / f"{theme_name}.css"
-    if not theme_path.is_file():
-        raise FileNotFoundError(f"unknown theme: {theme_name}")
-    return theme_path
+def run_markdown_stage(
+    doc_ref: str,
+    stage_dir: Path,
+    output_dir: Path,
+    file_stem: str,
+) -> tuple[Path, int, str]:
+    validate_markdown_doc_ref(doc_ref)
+    credentials = require_feishu_docx_credentials(doc_ref)
+    raw_markdown_path, raw_assets_dir = export_markdown_with_feishu_docx(
+        doc_ref,
+        stage_dir,
+        file_stem or None,
+        credentials,
+    )
+    final_stem = file_stem or raw_markdown_path.stem
+    localized_markdown_path = output_dir / f"{final_stem}.md"
+    localized_count = normalize_feishu_docx_assets(
+        raw_markdown_path,
+        raw_assets_dir,
+        localized_markdown_path,
+        output_dir / "images",
+    )
+    normalize_markdown_user_mentions_file(localized_markdown_path)
+    normalize_markdown_callouts_file(localized_markdown_path)
+    return localized_markdown_path, localized_count, final_stem
 
 
-def build_render_html(
-    body_html: Path,
-    render_html: Path,
-    title: str,
-    theme_css: Path,
-    override_css: Path | None,
-) -> None:
-    body = body_html.read_text(encoding="utf-8")
-    theme = theme_css.read_text(encoding="utf-8")
-    extra = override_css.read_text(encoding="utf-8") if override_css else ""
-    html = f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escape(title)}</title>
-  <style>
-{BASE_CSS}
-
-{theme}
-
-{extra}
-  </style>
-</head>
-<body>
-  <main>
-{body}
-  </main>
-</body>
-</html>
-"""
-    render_html.write_text(html, encoding="utf-8")
+def run_native_pdf_stage(
+    doc_ref: str,
+    stage_dir: Path,
+    output_dir: Path,
+    title_suffix: str,
+    file_stem: str,
+    keep_temp_doc: bool,
+    lark_cli_identity: str,
+) -> dict[str, object]:
+    validate_markdown_doc_ref(doc_ref)
+    expanded_count, temp_title, temp_doc_token, temp_doc_url = prepare_temp_doc_stage(
+        doc_ref,
+        title_suffix,
+        stage_dir,
+        lark_cli_identity,
+    )
+    output_stem = file_stem or slugify_filename(temp_title)
+    output_pdf = output_dir / f"{output_stem}.pdf"
+    raw_native_pdf = export_native_pdf(
+        temp_doc_token,
+        stage_dir,
+        f"{output_stem}.native-raw",
+        lark_cli_identity,
+    )
+    preserved_raw_pdf = output_dir / f"{output_stem}.native-raw.pdf"
+    if output_pdf.exists():
+        output_pdf.unlink()
+    if preserved_raw_pdf.exists():
+        preserved_raw_pdf.unlink()
+    footer_result = postprocess_native_pdf(raw_native_pdf, output_pdf, preserved_raw_pdf)
+    return {
+        "expanded_references": expanded_count,
+        "temp_doc_token": temp_doc_token,
+        "temp_doc_url": temp_doc_url,
+        "temp_doc_deleted": not keep_temp_doc,
+        "output_pdf": footer_result.final_pdf_path,
+        "ai_footer_postprocess": {
+            "status": footer_result.status,
+            "raw_pdf_path": footer_result.raw_pdf_path,
+            "warning": footer_result.warning,
+        },
+        "warnings": [footer_result.warning] if footer_result.warning else [],
+    }
 
 
 def export_document(
@@ -713,149 +541,57 @@ def export_document(
     keep_temp_doc: bool,
     theme_name: str,
     override_css: Path | None,
-    pdf_mode: str = "rendered",
+    pdf_mode: str = "native",
 ) -> dict:
-    if pdf_mode not in {"rendered", "native"}:
+    if pdf_mode != "native":
         raise ValueError(f"unsupported pdf_mode: {pdf_mode}")
-    if override_css and not override_css.is_file():
-        raise FileNotFoundError(f"override CSS not found: {override_css}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     lark_cli_identity = resolve_lark_cli_identity()
-    provider = resolve_markdown_provider(doc_ref)
 
     outputs: dict[str, str] = {}
     warnings: list[str] = []
     ai_footer_postprocess: dict | None = None
     localized_image_count = 0
-    theme_css_path: Path | None = None
     expanded_count: int | None = None
     temp_doc_token: str | None = None
     temp_doc_url: str | None = None
     temp_doc_deleted = True
-    temp_title = file_stem or "export"
-    final_stem = file_stem
 
     with tempfile.TemporaryDirectory(prefix="lark-doc-exporter-") as tmpdir:
         stage_dir = Path(tmpdir)
-        localized_markdown_path: Path | None = None
-
-        needs_markdown_artifacts = "markdown" in formats or (
-            "pdf" in formats and pdf_mode == "rendered"
-        )
-        if needs_markdown_artifacts:
-            render_root = output_dir if "markdown" in formats else stage_dir
-            assets_dir = render_root / "images"
-
-            if provider.provider == "feishu-docx":
-                raw_markdown_path, raw_assets_dir = export_markdown_with_feishu_docx(
-                    doc_ref,
-                    stage_dir,
-                    final_stem,
-                    provider.credentials,
-                )
-                temp_title = raw_markdown_path.stem
-                final_stem = final_stem or raw_markdown_path.stem
-                localized_markdown_path = render_root / f"{final_stem}.md"
-                localized_image_count = normalize_feishu_docx_assets(
-                    raw_markdown_path,
-                    raw_assets_dir,
-                    localized_markdown_path,
-                    assets_dir,
-                )
-            else:
-                (
-                    expanded_count,
-                    temp_title,
-                    temp_doc_token,
-                    temp_doc_url,
-                ) = prepare_temp_doc_stage(
-                    doc_ref,
-                    title_suffix,
-                    stage_dir,
-                    lark_cli_identity,
-                )
-                final_stem = final_stem or slugify_filename(temp_title)
-                localized_markdown_path = render_root / f"{final_stem}.md"
-                raw_markdown_path = export_markdown(
-                    temp_doc_token,
-                    stage_dir,
-                    f"{final_stem}.raw",
-                    lark_cli_identity,
-                )
-                localized_image_count = localize_markdown_images(
-                    raw_markdown_path, localized_markdown_path, assets_dir
-                )
-                temp_doc_deleted = not keep_temp_doc
-
-            normalize_markdown_user_mentions_file(localized_markdown_path)
-            normalize_markdown_callouts_file(localized_markdown_path)
-
-            if "markdown" in formats:
-                outputs["markdown"] = str(localized_markdown_path)
+        if "markdown" in formats:
+            localized_markdown_path, localized_image_count, _ = run_markdown_stage(
+                doc_ref,
+                stage_dir,
+                output_dir,
+                file_stem,
+            )
+            outputs["markdown"] = str(localized_markdown_path)
 
         if "pdf" in formats:
-            output_stem = final_stem or "export"
-            output_pdf = output_dir / f"{output_stem}.pdf"
-            if pdf_mode == "rendered":
-                assert localized_markdown_path is not None
-                theme_css_path = resolve_theme_css(theme_name)
-                body_html = stage_dir / "body.html"
-                render_html = stage_dir / "render.html"
-                render_markdown_body(localized_markdown_path, body_html)
-                build_render_html(
-                    body_html, render_html, temp_title, theme_css_path, override_css
-                )
-                render_html_to_pdf(render_html, output_pdf)
-                outputs["pdf"] = str(output_pdf)
-            else:
-                if temp_doc_token is None:
-                    (
-                        expanded_count,
-                        temp_title,
-                        temp_doc_token,
-                        temp_doc_url,
-                    ) = prepare_temp_doc_stage(
-                        doc_ref,
-                        title_suffix,
-                        stage_dir,
-                        lark_cli_identity,
-                    )
-                    final_stem = final_stem or slugify_filename(temp_title)
-                    output_stem = final_stem
-                    output_pdf = output_dir / f"{output_stem}.pdf"
-                    temp_doc_deleted = not keep_temp_doc
-
-                raw_native_pdf = export_native_pdf(
-                    temp_doc_token,
-                    stage_dir,
-                    f"{output_stem}.native-raw",
-                    lark_cli_identity,
-                )
-                preserved_raw_pdf = output_dir / f"{output_stem}.native-raw.pdf"
-                if output_pdf.exists():
-                    output_pdf.unlink()
-                if preserved_raw_pdf.exists():
-                    preserved_raw_pdf.unlink()
-                footer_result = postprocess_native_pdf(
-                    raw_native_pdf, output_pdf, preserved_raw_pdf
-                )
-                ai_footer_postprocess = {
-                    "status": footer_result.status,
-                    "raw_pdf_path": footer_result.raw_pdf_path,
-                    "warning": footer_result.warning,
-                }
-                if footer_result.warning:
-                    warnings.append(footer_result.warning)
-                if footer_result.final_pdf_path:
-                    outputs["pdf"] = footer_result.final_pdf_path
-
-        if temp_doc_token and not keep_temp_doc:
-            delete_temp_doc(temp_doc_token, lark_cli_identity)
+            native_pdf_stage = run_native_pdf_stage(
+                doc_ref,
+                stage_dir,
+                output_dir,
+                title_suffix,
+                file_stem,
+                keep_temp_doc,
+                lark_cli_identity,
+            )
+            expanded_count = native_pdf_stage["expanded_references"]
+            temp_doc_token = native_pdf_stage["temp_doc_token"]
+            temp_doc_url = native_pdf_stage["temp_doc_url"]
+            temp_doc_deleted = native_pdf_stage["temp_doc_deleted"]
+            ai_footer_postprocess = native_pdf_stage["ai_footer_postprocess"]
+            warnings.extend(native_pdf_stage["warnings"])
+            if native_pdf_stage["output_pdf"]:
+                outputs["pdf"] = native_pdf_stage["output_pdf"]
+            if temp_doc_token and not keep_temp_doc:
+                delete_temp_doc(temp_doc_token, lark_cli_identity)
 
     native_failure = (
         "pdf" in formats
-        and pdf_mode == "native"
         and ai_footer_postprocess is not None
         and ai_footer_postprocess["status"] in FAILURE_STATUSES
     )
@@ -868,18 +604,9 @@ def export_document(
         "temp_doc_deleted": temp_doc_deleted,
         "temp_doc_url": temp_doc_url,
         "localized_images": localized_image_count,
-        "theme": theme_name if "pdf" in formats and pdf_mode == "rendered" else None,
-        "pdf_mode": pdf_mode if "pdf" in formats else None,
+        "pdf_mode": "native" if "pdf" in formats else None,
         "ai_footer_postprocess": ai_footer_postprocess,
         "warnings": warnings,
         "outputs": outputs,
-        "markdown_provider": provider.provider,
-        "markdown_provider_detail": provider.detail,
-        "pdf_renderer": (
-            "feishu-native"
-            if "pdf" in formats and pdf_mode == "native"
-            else "local-chromium"
-            if "pdf" in formats
-            else None
-        ),
+        "pdf_renderer": "feishu-native" if "pdf" in formats else None,
     }
