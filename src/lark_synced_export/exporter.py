@@ -582,22 +582,37 @@ def export_native_pdf(
 
 
 def delete_temp_doc(temp_doc_token: str, lark_cli_identity: str) -> None:
-    run_json(
-        [
-            "lark-cli",
-            "drive",
-            "+delete",
-            "--as",
-            lark_cli_identity,
-            "--file-token",
-            temp_doc_token,
-            "--type",
-            "docx",
-            "--yes",
-            "--format",
-            "json",
-        ]
-    )
+    try:
+        run_json(
+            [
+                "lark-cli",
+                "drive",
+                "+delete",
+                "--as",
+                lark_cli_identity,
+                "--file-token",
+                temp_doc_token,
+                "--type",
+                "docx",
+                "--yes",
+                "--format",
+                "json",
+            ]
+        )
+    except subprocess.CalledProcessError as exc:
+        try:
+            payload = json.loads(exc.stdout)
+        except json.JSONDecodeError:
+            raise
+
+        error = payload.get("error")
+        if (
+            isinstance(error, dict)
+            and error.get("code") == 1061007
+            and "file has been delete" in str(error.get("message", "")).lower()
+        ):
+            return
+        raise
 
 
 def prepare_temp_doc_stage(

@@ -1,3 +1,5 @@
+import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -6,6 +8,7 @@ import lark_synced_export.exporter as exporter_module
 from lark_synced_export.exporter import (
     LARK_CLI_IDENTITY_ENV,
     build_render_html,
+    delete_temp_doc,
     export_doc,
     export_document,
     normalize_xml_for_create,
@@ -194,6 +197,72 @@ def test_export_doc_polls_task_result_and_downloads_async_export(
             "--overwrite",
         ),
     ]
+
+
+def test_delete_temp_doc_ignores_already_deleted_error(monkeypatch):
+    commands: list[tuple[str, ...]] = []
+    payload = {
+        "ok": False,
+        "error": {
+            "code": 1061007,
+            "message": "file has been delete.",
+        },
+    }
+
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        del cwd
+        commands.append(tuple(cmd))
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output=json.dumps(payload),
+            stderr="",
+        )
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+
+    delete_temp_doc("doc-token", "bot")
+
+    assert commands == [
+        (
+            "lark-cli",
+            "drive",
+            "+delete",
+            "--as",
+            "bot",
+            "--file-token",
+            "doc-token",
+            "--type",
+            "docx",
+            "--yes",
+            "--format",
+            "json",
+        )
+    ]
+
+
+def test_delete_temp_doc_reraises_other_delete_errors(monkeypatch):
+    payload = {
+        "ok": False,
+        "error": {
+            "code": 999999,
+            "message": "permission denied",
+        },
+    }
+
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        del cwd
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output=json.dumps(payload),
+            stderr="",
+        )
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        delete_temp_doc("doc-token", "bot")
 
 
 def test_build_render_html_includes_theme_and_override(tmp_path: Path):
