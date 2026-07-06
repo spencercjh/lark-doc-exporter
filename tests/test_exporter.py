@@ -535,6 +535,79 @@ def test_export_document_keeps_native_result_fields(monkeypatch, tmp_path: Path)
     assert "theme" not in result
 
 
+def test_export_document_combined_run_reuses_markdown_resolved_stem(
+    monkeypatch, tmp_path: Path
+):
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    raw_markdown_path = stage_dir / "markdown-derived-name.md"
+    raw_markdown_path.write_text("# Demo\n", encoding="utf-8")
+    raw_assets_dir = stage_dir / "markdown-derived-name"
+    raw_assets_dir.mkdir()
+    raw_native_pdf = stage_dir / "native.pdf"
+    raw_native_pdf.write_bytes(b"%PDF-1.4\nraw\n")
+    capture: dict[str, str] = {}
+
+    patch_tempdir(monkeypatch, stage_dir)
+    patch_markdown_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.export_markdown_with_feishu_docx",
+        lambda _doc, _stage, _stem, _credentials: (raw_markdown_path, raw_assets_dir),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.normalize_feishu_docx_assets",
+        lambda _src, _raw_assets, dst, _assets: (
+            dst.write_text("# Demo\n", encoding="utf-8"),
+            0,
+        )[-1],
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.prepare_temp_doc_stage",
+        lambda _doc, _suffix, _stage, _identity: (
+            0,
+            "Native Title That Should Not Win",
+            "tmp-token",
+            "https://example.com/doc",
+        ),
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.export_native_pdf",
+        lambda _token, _stage, stem, _identity: (
+            capture.setdefault("native_stem", stem),
+            raw_native_pdf,
+        )[-1],
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.delete_temp_doc",
+        lambda _token, _identity: None,
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.exporter.postprocess_native_pdf",
+        lambda _raw, final, preserved: NativePdfPostprocessResult(
+            status="removed",
+            final_pdf_path=str(final),
+            raw_pdf_path=str(preserved),
+            warning=None,
+        ),
+    )
+
+    result = export_document(
+        doc_ref="https://example.feishu.cn/docx/abc123",
+        output_dir=tmp_path / "out",
+        formats=["markdown", "pdf"],
+        title_suffix="",
+        file_stem="",
+        keep_temp_doc=False,
+        theme_name="default",
+        override_css=None,
+        pdf_mode="native",
+    )
+
+    assert Path(result["outputs"]["markdown"]).name == "markdown-derived-name.md"
+    assert Path(result["outputs"]["pdf"]).name == "markdown-derived-name.pdf"
+    assert capture["native_stem"] == "markdown-derived-name.native-raw"
+
+
 def test_export_document_uses_configured_lark_cli_identity(monkeypatch, tmp_path: Path):
     stage_dir = tmp_path / "stage"
     stage_dir.mkdir()

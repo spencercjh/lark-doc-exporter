@@ -557,11 +557,16 @@ def export_document(
     temp_doc_token: str | None = None
     temp_doc_url: str | None = None
     temp_doc_deleted = True
+    resolved_file_stem = file_stem
 
     with tempfile.TemporaryDirectory(prefix="lark-doc-exporter-") as tmpdir:
         stage_dir = Path(tmpdir)
         if "markdown" in formats:
-            localized_markdown_path, localized_image_count, _ = run_markdown_stage(
+            (
+                localized_markdown_path,
+                localized_image_count,
+                resolved_file_stem,
+            ) = run_markdown_stage(
                 doc_ref,
                 stage_dir,
                 output_dir,
@@ -575,7 +580,7 @@ def export_document(
                 stage_dir,
                 output_dir,
                 title_suffix,
-                file_stem,
+                resolved_file_stem,
                 keep_temp_doc,
                 lark_cli_identity,
             )
