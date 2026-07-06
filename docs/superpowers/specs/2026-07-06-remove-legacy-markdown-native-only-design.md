@@ -56,8 +56,8 @@ This milestone does **not** try to:
 - change the current synced-block expansion strategy used for native PDF
 - add support for token-only refs, non-doc URLs, or other Feishu resource types
 - add new authentication flags to the CLI
-- redesign the JSON result format beyond the fields required by the removed
-  surfaces
+- redesign unrelated parts of the JSON result payload outside the fields touched
+  by the removed CLI/provider surfaces
 
 ## CLI and Input Contract
 
@@ -101,6 +101,23 @@ PDF output is always native Feishu PDF:
 
 The CLI no longer offers a rendered-vs-native decision.
 
+### `--pdf-mode` compatibility decision
+
+This spec treats `--pdf-mode` as a compatibility shell, not as an immediately
+deleted argument.
+
+Implementation contract:
+
+- `--pdf-mode native` remains accepted for this release
+- omitting `--pdf-mode` behaves the same as `--pdf-mode native`
+- any other value, including `rendered`, must fail
+- help/docs should describe native PDF as the only supported PDF path and should
+  not present `--pdf-mode` as a meaningful choice anymore
+
+This keeps existing command invocations and bundled skill examples from breaking
+on argument parsing alone while still removing rendered mode as a product
+feature.
+
 ### Removed CLI surface
 
 Remove these user-facing options and concepts:
@@ -113,6 +130,64 @@ Remove these user-facing options and concepts:
 
 The help text, README examples, bundled skill docs, and doctor output should be
 rewritten so they describe only the supported contract, not the removed one.
+
+## JSON Result Contract
+
+This release must explicitly preserve or remove result fields rather than
+letting them drift as a side effect of the implementation.
+
+### Fields to preserve
+
+Keep these result fields because they still describe real behavior after the
+change and are already covered by tests/snapshots:
+
+- `ok`
+- `doc`
+- `expanded_references`
+- `temp_doc_token`
+- `temp_doc_deleted`
+- `temp_doc_url`
+- `localized_images`
+- `ai_footer_postprocess`
+- `warnings`
+- `outputs`
+- `pdf_mode`
+- `pdf_renderer`
+
+Field semantics after the change:
+
+- `pdf_mode` stays present only when `"pdf"` is in `formats`, and its value is
+  always `"native"`
+- `pdf_renderer` stays present only when `"pdf"` is in `formats`, and its value
+  is always `"feishu-native"`
+- `temp_doc_*` fields remain meaningful because the native-PDF stage still uses
+  temp docs
+- `expanded_references` remains meaningful because the native-PDF stage still
+  expands synced references
+
+### Fields to remove
+
+Remove these result fields because they only exist to expose the provider
+selection story that this spec deletes:
+
+- `markdown_provider`
+- `markdown_provider_detail`
+- `theme`
+
+There is no replacement `markdown_provider` field because Markdown no longer
+has runtime provider choice. The contract becomes structural: Markdown output,
+when requested, always comes from `feishu-docx`.
+
+### Combined export behavior
+
+For `--formats markdown,pdf`, the result payload must still reflect both
+pipelines in one object:
+
+- Markdown output appears under `outputs["markdown"]`
+- PDF output appears under `outputs["pdf"]`
+- `pdf_mode="native"` and `pdf_renderer="feishu-native"` remain present
+- `temp_doc_*` / `expanded_references` describe the native-PDF half of the run
+- there is no Markdown-provider metadata anymore
 
 ## Dependency and Credential Contract
 
@@ -266,6 +341,12 @@ At minimum, implementation should re-run:
 
 - `make lint`
 - `uv run pytest tests/test_feishu_docx_bridge.py tests/test_exporter.py tests/test_cli.py tests/test_doctor.py tests/test_release_version.py -q`
+- `uv run pytest tests/test_skill_install.py -q`
+
+In addition, the implementation must verify the spec-touched snapshot/live
+surface for the native lane:
+
+- `uv run pytest tests/test_public_doc_e2e.py -q`
 
 If dependency cleanup or repo-wide shared behavior changes, run a broader
 `pytest` pass before pushing.
