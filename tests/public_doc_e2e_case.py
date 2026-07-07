@@ -15,8 +15,10 @@ class FeaturePoint:
     pdf_forbid: tuple[str, ...] = ()
 
 
-# Pinned canonical fixture. PUBLIC_DOC_E2E_REF is only for local override.
-DOC_REF = os.environ.get("PUBLIC_DOC_E2E_REF") or "IkCedJjFIoypyzxwXjacRSy9nBg"
+# Pinned canonical fixture URL. PUBLIC_DOC_E2E_REF is only for local override.
+DOC_REF = os.environ.get("PUBLIC_DOC_E2E_REF") or (
+    "https://dynamia-ai.feishu.cn/docx/IkCedJjFIoypyzxwXjacRSy9nBg"
+)
 FILE_STEM = "public-doc-e2e"
 EXPECTED_PDF_TOTAL_IMAGES = 2
 EXPORT_ARGS = {

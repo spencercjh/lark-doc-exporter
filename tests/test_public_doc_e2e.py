@@ -16,6 +16,10 @@ from lark_synced_export.exporter import (
     LARK_CLI_IDENTITY_ENV,
     resolve_lark_cli_identity,
 )
+from lark_synced_export.feishu_docx_bridge import (
+    require_feishu_docx_credentials,
+    validate_markdown_doc_ref,
+)
 from public_doc_e2e_case import FeaturePoint
 
 
@@ -198,7 +202,9 @@ def test_is_lark_cli_identity_ready_rejects_timeout(monkeypatch):
     assert "timed out" in detail
 
 
-def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
+def test_require_public_doc_export_prereqs_ready_skips_when_identity_unavailable(
+    monkeypatch,
+):
     monkeypatch.setattr(
         "test_public_doc_e2e.resolve_lark_cli_identity",
         lambda: "bot",
@@ -209,10 +215,35 @@ def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
     )
 
     with pytest.raises(
-        pytest.fail.Exception,
-        match="canonical public doc is configured but lark-cli bot identity is not ready: Bot identity unavailable",
+        pytest.skip.Exception,
+        match="public doc export prerequisites missing: lark-cli bot identity is not ready: Bot identity unavailable",
     ):
-        require_public_doc_auth_ready()
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
+
+
+def test_require_public_doc_export_prereqs_ready_skips_when_feishu_docx_credentials_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (True, "User identity: ready"),
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.require_feishu_docx_credentials",
+        lambda _doc_ref: (_ for _ in ()).throw(
+            RuntimeError("feishu-docx markdown export requires FEISHU_APP_ID")
+        ),
+    )
+
+    with pytest.raises(
+        pytest.skip.Exception,
+        match="public doc export prerequisites missing: feishu-docx markdown export requires FEISHU_APP_ID",
+    ):
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
 
 
 def build_stable_result(payload: dict[str, object]) -> dict[str, object]:
@@ -322,15 +353,19 @@ def is_lark_cli_identity_ready(identity: str) -> tuple[bool, str]:
     return True, selected.get("message", f"{label} ready")
 
 
-def require_public_doc_auth_ready() -> None:
+def require_public_doc_export_prereqs_ready(doc_ref: str) -> None:
+    validate_markdown_doc_ref(doc_ref)
     identity = resolve_lark_cli_identity()
     auth_ready, auth_detail = is_lark_cli_identity_ready(identity)
     if not auth_ready:
-        pytest.fail(
-            "canonical public doc is configured but lark-cli "
-            f"{identity} identity is not ready: "
-            f"{auth_detail}"
+        pytest.skip(
+            "public doc export prerequisites missing: lark-cli "
+            f"{identity} identity is not ready: {auth_detail}"
         )
+    try:
+        require_feishu_docx_credentials(doc_ref)
+    except RuntimeError as exc:
+        pytest.skip(f"public doc export prerequisites missing: {exc}")
 
 
 def extract_pdf_text(pdf_path: Path) -> str:
@@ -368,7 +403,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if case.DOC_REF is None:
         pytest.skip("public doc fixture not configured")
 
-    require_public_doc_auth_ready()
+    require_public_doc_export_prereqs_ready(case.DOC_REF)
 
     output_dir = tmp_path / case.FILE_STEM
     exit_code = run_main(
