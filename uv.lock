@@ -106,8 +106,8 @@ wheels = [
 
 [[package]]
 name = "feishu-docx"
-version = "0.1.dev71+g7517b56fe"
-source = { git = "https://github.com/spencercjh/feishu-docx?rev=7517b56#7517b56fef44d0c5110ecc96e438b51d221c6a02" }
+version = "0.2.6"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "httpx" },
@@ -118,6 +118,10 @@ dependencies = [
     { name = "rich" },
     { name = "textual" },
     { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/46/20/31e790ab0fbb6aa8919e07541575cd8096257c2318d4c9fe1074e221e764/feishu_docx-0.2.6.tar.gz", hash = "sha256:16f9a829e57ee1fbb89130d178ee595e21cb2a52f88605217b636dec24374639", size = 88567, upload-time = "2026-05-14T12:56:50.778Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6e/cd/8c48045ff4ee088a081cac53f08504e53625ba814b712f0c178b38ea9415/feishu_docx-0.2.6-py3-none-any.whl", hash = "sha256:34cd09d01d67439399a5dfae1bd88f7e6499fe9b9a6988ca07df553c67952462", size = 127784, upload-time = "2026-05-14T12:56:49.551Z" },
 ]
 
 [[package]]
@@ -178,7 +182,11 @@ wheels = [
 [[package]]
 name = "kitup-sdk"
 version = "0.1.3"
-source = { git = "https://github.com/lathe-cli/kitup.git?subdirectory=python&rev=main#f7fafab06c41e37aec726127308a58181ba1192f" }
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/a2/99f05ae3e56bd688cc4c1deaf1145849760401902a576a0952fdf5c38be3/kitup_sdk-0.1.3.tar.gz", hash = "sha256:b9c992a406d681f97e9bdaad73ca2b64c5f172da966380174f8e6ed5b1ff898b", size = 33473, upload-time = "2026-07-03T04:00:01.461Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b1/fb/f665677509e2afd5ac19e241d262ec7bb98dc26bf8ad2e0dd252de3598a3/kitup_sdk-0.1.3-py3-none-any.whl", hash = "sha256:88a24b8543048ae65c6d8bd3a2086313c93d63ba5a15c5f55a0d71d8eccecff1", size = 18335, upload-time = "2026-07-03T04:00:00.043Z" },
+]
 
 [[package]]
 name = "lark-doc-exporter"
@@ -199,8 +207,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "feishu-docx", git = "https://github.com/spencercjh/feishu-docx?rev=7517b56" },
-    { name = "kitup-sdk", git = "https://github.com/lathe-cli/kitup.git?subdirectory=python&rev=main" },
+    { name = "feishu-docx", specifier = ">=0.2.6,<0.3" },
+    { name = "kitup-sdk", specifier = ">=0.1.3,<0.2" },
     { name = "markdown", specifier = ">=3.7,<4" },
     { name = "pymupdf", specifier = ">=1.26,<2" },
 ]
