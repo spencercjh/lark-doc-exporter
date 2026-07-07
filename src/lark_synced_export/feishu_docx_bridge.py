@@ -66,7 +66,7 @@ def discover_feishu_docx_credentials(doc_ref: str) -> FeishuDocxCredentials | No
 
     try:
         payload = json.loads(FEISHU_DOCX_CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
 
     app_id = payload.get("app_id")

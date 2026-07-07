@@ -516,7 +516,9 @@ def run_native_pdf_stage(
         output_pdf.unlink()
     if preserved_raw_pdf.exists():
         preserved_raw_pdf.unlink()
-    footer_result = postprocess_native_pdf(raw_native_pdf, output_pdf, preserved_raw_pdf)
+    footer_result = postprocess_native_pdf(
+        raw_native_pdf, output_pdf, preserved_raw_pdf
+    )
     return {
         "expanded_references": expanded_count,
         "temp_doc_token": temp_doc_token,

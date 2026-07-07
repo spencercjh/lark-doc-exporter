@@ -390,9 +390,7 @@ def test_export_document_markdown_only_calls_only_feishu_docx_stage(
     assert result["pdf_renderer"] is None
 
 
-def test_export_document_pdf_only_calls_only_native_stage(
-    monkeypatch, tmp_path: Path
-):
+def test_export_document_pdf_only_calls_only_native_stage(monkeypatch, tmp_path: Path):
     stage_dir = tmp_path / "stage"
     stage_dir.mkdir()
     raw_native_pdf = stage_dir / "demo.native-raw.pdf"
