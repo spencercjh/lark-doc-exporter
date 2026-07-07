@@ -397,17 +397,28 @@ def delete_temp_doc(temp_doc_token: str, lark_cli_identity: str) -> None:
             ]
         )
     except subprocess.CalledProcessError as exc:
-        try:
-            payload = json.loads(exc.stdout)
-        except json.JSONDecodeError:
-            raise
+        payload: dict[str, object] | None = None
+        for raw in (exc.stdout, exc.stderr):
+            if not raw:
+                continue
+            try:
+                candidate = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                payload = candidate
+                break
 
-        error = payload.get("error")
-        if (
-            isinstance(error, dict)
-            and error.get("code") == 1061007
-            and "file has been delete" in str(error.get("message", "")).lower()
-        ):
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error, dict):
+            message = str(error.get("message", "")).lower()
+            if error.get("code") == 1061007 and "file has been delete" in message:
+                return
+
+        combined_output = " ".join(
+            chunk for chunk in (exc.stdout, exc.stderr) if chunk
+        ).lower()
+        if "1061007" in combined_output and "file has been delete" in combined_output:
             return
         raise
 

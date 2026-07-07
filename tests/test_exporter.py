@@ -260,6 +260,44 @@ def test_delete_temp_doc_ignores_already_deleted_error(monkeypatch):
     ]
 
 
+def test_delete_temp_doc_ignores_already_deleted_error_from_stderr_json(monkeypatch):
+    payload = {
+        "ok": False,
+        "error": {
+            "code": 1061007,
+            "message": "file has been delete.",
+        },
+    }
+
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        del cwd
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output="",
+            stderr=json.dumps(payload),
+        )
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+
+    delete_temp_doc("doc-token", "bot")
+
+
+def test_delete_temp_doc_ignores_already_deleted_error_from_stderr_text(monkeypatch):
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        del cwd
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=cmd,
+            output="",
+            stderr="Error: file has been delete. Code: 1061007",
+        )
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+
+    delete_temp_doc("doc-token", "bot")
+
+
 def test_delete_temp_doc_reraises_other_delete_errors(monkeypatch):
     payload = {
         "ok": False,
