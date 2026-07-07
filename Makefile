@@ -15,5 +15,6 @@ test-public-doc-e2e:
 
 build:
 	uv build
+	uv run python scripts/check_wheel_metadata.py
 
 ci: lint test build
