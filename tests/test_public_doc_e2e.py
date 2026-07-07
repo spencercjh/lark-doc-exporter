@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -16,10 +17,16 @@ from lark_synced_export.exporter import (
     LARK_CLI_IDENTITY_ENV,
     resolve_lark_cli_identity,
 )
+from lark_synced_export.feishu_docx_bridge import (
+    require_feishu_docx_credentials,
+    validate_markdown_doc_ref,
+)
 from public_doc_e2e_case import FeaturePoint
 
 
 SNAPSHOT_ROOT = Path(__file__).with_name("e2e_snapshots") / "public_doc"
+LOCAL_SKIP_ENV = "LARK_DOC_EXPORTER_ALLOW_LOCAL_PUBLIC_DOC_SKIP"
+MARKDOWN_IMAGE_LINK_RE = re.compile(r"!\[[^\]]*]\(([^)]+)\)")
 
 
 def test_build_stable_result_filters_runtime_fields():
@@ -46,6 +53,28 @@ def test_build_stable_result_filters_runtime_fields():
 
 def test_normalize_pdf_text_collapses_whitespace():
     assert normalize_pdf_text("A\u200b  \n\nB\t\tC\ufeff\n") == "A B C"
+
+
+def test_normalize_markdown_text_strips_space_before_cjk_punctuation():
+    assert (
+        normalize_markdown_text("部署 **HAMi AI Platform** ，并完成验证。\n")
+        == "部署 **HAMi AI Platform**，并完成验证。"
+    )
+
+
+def test_collect_localized_image_targets_ignores_non_image_assets():
+    markdown = "\n".join(
+        [
+            "![cover](images/cover.png)",
+            "[attachment](images/capability_audit_attachment.txt)",
+            "![diagram](<images/diagram.svg>)",
+        ]
+    )
+
+    assert collect_localized_image_targets(markdown) == [
+        "images/cover.png",
+        "images/diagram.svg",
+    ]
 
 
 def test_assert_feature_point_reports_named_failure(tmp_path: Path):
@@ -198,7 +227,9 @@ def test_is_lark_cli_identity_ready_rejects_timeout(monkeypatch):
     assert "timed out" in detail
 
 
-def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
+def test_require_public_doc_export_prereqs_ready_fails_when_identity_unavailable(
+    monkeypatch,
+):
     monkeypatch.setattr(
         "test_public_doc_e2e.resolve_lark_cli_identity",
         lambda: "bot",
@@ -210,9 +241,80 @@ def test_require_public_doc_auth_ready_fails_when_unavailable(monkeypatch):
 
     with pytest.raises(
         pytest.fail.Exception,
-        match="canonical public doc is configured but lark-cli bot identity is not ready: Bot identity unavailable",
+        match="public doc export prerequisites missing: lark-cli bot identity is not ready: Bot identity unavailable",
     ):
-        require_public_doc_auth_ready()
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
+
+
+def test_require_public_doc_export_prereqs_ready_skips_when_identity_unavailable_with_local_gate(
+    monkeypatch,
+):
+    monkeypatch.setenv(LOCAL_SKIP_ENV, "1")
+    monkeypatch.setattr(
+        "test_public_doc_e2e.resolve_lark_cli_identity",
+        lambda: "bot",
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (False, "Bot identity unavailable"),
+    )
+
+    with pytest.raises(
+        pytest.skip.Exception,
+        match="public doc export prerequisites missing: lark-cli bot identity is not ready: Bot identity unavailable",
+    ):
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
+
+
+def test_require_public_doc_export_prereqs_ready_fails_when_feishu_docx_credentials_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (True, "User identity: ready"),
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.require_feishu_docx_credentials",
+        lambda _doc_ref: (_ for _ in ()).throw(
+            RuntimeError("feishu-docx markdown export requires FEISHU_APP_ID")
+        ),
+    )
+
+    with pytest.raises(
+        pytest.fail.Exception,
+        match="public doc export prerequisites missing: feishu-docx markdown export requires FEISHU_APP_ID",
+    ):
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
+
+
+def test_require_public_doc_export_prereqs_ready_skips_when_feishu_docx_credentials_missing_with_local_gate(
+    monkeypatch,
+):
+    monkeypatch.setenv(LOCAL_SKIP_ENV, "1")
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (True, "User identity: ready"),
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.require_feishu_docx_credentials",
+        lambda _doc_ref: (_ for _ in ()).throw(
+            RuntimeError("feishu-docx markdown export requires FEISHU_APP_ID")
+        ),
+    )
+
+    with pytest.raises(
+        pytest.skip.Exception,
+        match="public doc export prerequisites missing: feishu-docx markdown export requires FEISHU_APP_ID",
+    ):
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
 
 
 def build_stable_result(payload: dict[str, object]) -> dict[str, object]:
@@ -235,12 +337,31 @@ def normalize_pdf_text(text: str) -> str:
     return " ".join(part.strip() for part in text.splitlines() if part.strip())
 
 
+def normalize_markdown_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
+    text = re.sub(r"[ \t]+([，。！？；：、）】》」』])", r"\1", text)
+    text = re.sub(r"([（【《「『])[ \t]+", r"\1", text)
+    return text.strip()
+
+
 def load_snapshot(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
 def load_json_snapshot(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def collect_localized_image_targets(markdown_text: str) -> list[str]:
+    targets: list[str] = []
+    for match in MARKDOWN_IMAGE_LINK_RE.finditer(markdown_text):
+        target = match.group(1).strip()
+        if target.startswith("<") and target.endswith(">"):
+            target = target[1:-1].strip()
+        if target.startswith("images/"):
+            targets.append(target)
+    return targets
 
 
 def assert_feature_point(
@@ -252,10 +373,10 @@ def assert_feature_point(
     snapshot_root: Path = SNAPSHOT_ROOT,
 ) -> None:
     if feature.markdown_contains_snapshot:
-        expected_markdown = load_snapshot(
-            snapshot_root / feature.markdown_contains_snapshot
+        expected_markdown = normalize_markdown_text(
+            load_snapshot(snapshot_root / feature.markdown_contains_snapshot)
         )
-        assert expected_markdown in markdown_text, (
+        assert expected_markdown in normalize_markdown_text(markdown_text), (
             f"feature {feature.name}: markdown snapshot missing"
         )
 
@@ -322,15 +443,30 @@ def is_lark_cli_identity_ready(identity: str) -> tuple[bool, str]:
     return True, selected.get("message", f"{label} ready")
 
 
-def require_public_doc_auth_ready() -> None:
+def allow_local_public_doc_skip() -> bool:
+    raw = os.environ.get(LOCAL_SKIP_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def require_public_doc_export_prereqs_ready(doc_ref: str) -> None:
+    validate_markdown_doc_ref(doc_ref)
     identity = resolve_lark_cli_identity()
     auth_ready, auth_detail = is_lark_cli_identity_ready(identity)
     if not auth_ready:
-        pytest.fail(
-            "canonical public doc is configured but lark-cli "
-            f"{identity} identity is not ready: "
-            f"{auth_detail}"
+        message = (
+            "public doc export prerequisites missing: lark-cli "
+            f"{identity} identity is not ready: {auth_detail}"
         )
+        if allow_local_public_doc_skip():
+            pytest.skip(message)
+        pytest.fail(message)
+    try:
+        require_feishu_docx_credentials(doc_ref)
+    except RuntimeError as exc:
+        message = f"public doc export prerequisites missing: {exc}"
+        if allow_local_public_doc_skip():
+            pytest.skip(message)
+        pytest.fail(message)
 
 
 def extract_pdf_text(pdf_path: Path) -> str:
@@ -368,7 +504,7 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if case.DOC_REF is None:
         pytest.skip("public doc fixture not configured")
 
-    require_public_doc_auth_ready()
+    require_public_doc_export_prereqs_ready(case.DOC_REF)
 
     output_dir = tmp_path / case.FILE_STEM
     exit_code = run_main(
@@ -409,7 +545,10 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if "localized_images" in expected_result:
         images_dir = output_dir / "images"
         assert images_dir.is_dir()
-        assert len(sorted(images_dir.iterdir())) == expected_result["localized_images"]
+        localized_image_targets = collect_localized_image_targets(markdown_text)
+        assert len(localized_image_targets) == expected_result["localized_images"]
+        for relative_target in localized_image_targets:
+            assert (output_dir / relative_target).is_file()
 
     for feature in case.FEATURE_POINTS:
         assert_feature_point(

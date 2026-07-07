@@ -1,13 +1,11 @@
 import json
 import subprocess
-from pathlib import Path
 
 from lark_synced_export.cli import run_main
 from lark_synced_export.doctor import (
     DoctorCheck,
     check_feishu_docx_markdown,
     check_lark_cli,
-    check_pdf_runtime,
     run_doctor,
 )
 
@@ -61,23 +59,17 @@ def test_check_lark_cli_probes_help_with_timeout(monkeypatch):
     assert calls["kwargs"]["timeout"] == 10
 
 
-def test_run_doctor_keeps_chromium_check_but_only_requires_lark_cli(monkeypatch):
+def test_run_doctor_reports_only_two_checks(monkeypatch):
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_lark_cli",
         lambda: DoctorCheck(name="lark-cli", ok=True, detail="ok", required=True),
-    )
-    monkeypatch.setattr(
-        "lark_synced_export.doctor.check_pdf_runtime",
-        lambda: DoctorCheck(
-            name="chromium", ok=False, detail="missing", required=False
-        ),
     )
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_feishu_docx_markdown",
         lambda: DoctorCheck(
             name="feishu-docx-markdown",
             ok=False,
-            detail="legacy fallback",
+            detail="not configured",
             required=False,
         ),
     )
@@ -85,15 +77,9 @@ def test_run_doctor_keeps_chromium_check_but_only_requires_lark_cli(monkeypatch)
     payload = run_doctor()
 
     assert payload["ok"] is True
-    assert payload["checks"] == [
-        {"name": "lark-cli", "ok": True, "detail": "ok", "required": True},
-        {"name": "chromium", "ok": False, "detail": "missing", "required": False},
-        {
-            "name": "feishu-docx-markdown",
-            "ok": False,
-            "detail": "legacy fallback",
-            "required": False,
-        },
+    assert [item["name"] for item in payload["checks"]] == [
+        "lark-cli",
+        "feishu-docx-markdown",
     ]
 
 
@@ -101,10 +87,6 @@ def test_run_doctor_fails_when_required_lark_cli_check_fails(monkeypatch):
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_lark_cli",
         lambda: DoctorCheck(name="lark-cli", ok=False, detail="missing", required=True),
-    )
-    monkeypatch.setattr(
-        "lark_synced_export.doctor.check_pdf_runtime",
-        lambda: DoctorCheck(name="chromium", ok=True, detail="ok", required=False),
     )
     monkeypatch.setattr(
         "lark_synced_export.doctor.check_feishu_docx_markdown",
@@ -121,53 +103,33 @@ def test_run_doctor_fails_when_required_lark_cli_check_fails(monkeypatch):
     assert payload["ok"] is False
 
 
-def test_check_pdf_runtime_is_optional_and_mentions_native_mode(monkeypatch):
+def test_check_feishu_docx_markdown_reports_ready(monkeypatch):
     monkeypatch.setattr(
-        "lark_synced_export.doctor.check_chromium_ready",
-        lambda: (False, "Chromium is not ready. Install it."),
+        "lark_synced_export.doctor.validate_markdown_doc_ref", lambda _doc: None
     )
-
-    result = check_pdf_runtime()
-
-    assert result.ok is False
-    assert result.required is False
-    assert "rendered PDF output" in result.detail
-    assert "Native PDF does not require Chromium" in result.detail
-
-
-def test_check_feishu_docx_markdown_reports_ready_selection(monkeypatch):
     monkeypatch.setattr(
-        "lark_synced_export.doctor.resolve_markdown_provider",
-        lambda _doc: type(
-            "Selection",
-            (),
-            {"provider": "feishu-docx", "detail": "auto:selected from config"},
-        )(),
+        "lark_synced_export.doctor.require_feishu_docx_exporter", lambda: object()
+    )
+    monkeypatch.setattr(
+        "lark_synced_export.doctor.require_feishu_docx_credentials",
+        lambda _doc: type("Credentials", (), {"source": "env"})(),
     )
 
     result = check_feishu_docx_markdown()
 
     assert result.ok is True
     assert result.required is False
-    assert "auto:selected from config" in result.detail
+    assert result.detail == "feishu-docx markdown is ready (env)."
 
 
-def test_check_feishu_docx_markdown_warns_that_legacy_is_transitional(monkeypatch):
-    monkeypatch.delenv("FEISHU_APP_ID", raising=False)
-    monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
-    monkeypatch.delenv("LARK_DOC_EXPORTER_MARKDOWN_PROVIDER", raising=False)
+def test_check_feishu_docx_markdown_reports_failure(monkeypatch):
     monkeypatch.setattr(
-        "lark_synced_export.feishu_docx_bridge.import_feishu_docx_exporter",
-        lambda: object(),
-    )
-    monkeypatch.setattr(
-        "lark_synced_export.feishu_docx_bridge.FEISHU_DOCX_CONFIG_PATH",
-        Path("/definitely/missing/config.json"),
+        "lark_synced_export.doctor.validate_markdown_doc_ref",
+        lambda _doc: (_ for _ in ()).throw(RuntimeError("missing credentials")),
     )
 
     result = check_feishu_docx_markdown()
 
     assert result.ok is False
     assert result.required is False
-    assert "deprecated legacy compatibility mode" in result.detail
-    assert "next release" in result.detail
+    assert result.detail == "missing credentials"

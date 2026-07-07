@@ -1,56 +1,30 @@
 # lark-doc-exporter
 
-Export Feishu/Lark docs with synced blocks expanded into:
+Export Feishu/Lark document URLs with synced blocks expanded into:
 
-- Markdown with localized images
-- Recommended native Feishu PDF with AI-footer post-processing
-- Optional locally rendered PDF when you need theme/CSS control
+- localized Markdown via `feishu-docx`
+- native Feishu PDF with AI-footer post-processing
 
 ## Requirements
 
-- Base requirements:
-  - Python 3.14
-  - `lark-cli` configured with a user session for native PDF and the legacy Markdown fallback
-- For preferred `feishu-docx` Markdown export:
-  - set `FEISHU_APP_ID` / `FEISHU_APP_SECRET` (and optionally `FEISHU_AUTH_MODE`, `FEISHU_IS_LARK`)
-  - or configure `~/.feishu-docx/config.json`
-- For `--pdf-mode native`:
-  - no Chromium runtime is required
-  - PyMuPDF is already bundled through this package dependency
-- For `--pdf-mode rendered`:
-  - a working Chrome/Chromium runtime, or the ability to install one with `uvx --from playwright playwright install chromium`
+- Python 3.14
+- `lark-cli` configured for the native PDF path
+- `feishu-docx` available for Markdown export
 
-If you use `uvx` / `uv tool install`, `uv` can provision the required Python for
-the tool environment automatically.
+If you use `uvx` or `uv tool install`, `uv` can provision the required Python
+for the tool environment automatically.
 
-## Markdown Provider
+## Contract
 
-`lark-doc-exporter` now prefers `feishu-docx` for Markdown generation when the
-doc ref is URL-shaped and `FEISHU_*` credentials (or `~/.feishu-docx/config.json`)
-are available.
+`lark-doc-exporter` is now a native-only exporter:
 
-Provider selection is controlled by `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER`:
+- inputs must be full document URLs
+- Markdown always comes from `feishu-docx`
+- PDF always comes from Feishu native export
+- `--pdf-mode native` remains accepted only as a compatibility shell
 
-- `auto` (default): prefer `feishu-docx`, otherwise fall back to the legacy
-  temp-doc + `lark-cli` Markdown path for this transition release only
-- `feishu-docx`: require the new provider and fail fast if credentials are missing
-  or the doc ref is not URL-shaped
-- `legacy`: force the previous temp-doc + `lark-cli` Markdown path, but only as
-  a deprecated compatibility bridge that is not receiving new maintenance and
-  will be removed in the next release
-
-Notes:
-
-- bare Feishu tokens fall back to `legacy` only in `auto`, because `feishu-docx`
-  needs a URL-shaped doc ref to infer the document type; forced
-  `LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=feishu-docx` fails fast instead
-- migrate now toward URL-shaped doc refs plus `FEISHU_APP_ID` /
-  `FEISHU_APP_SECRET` (or a readable `~/.feishu-docx/config.json`), because the
-  `legacy` bridge will be removed in the next release
-- native PDF still uses the temp-doc + `lark-cli` route even when Markdown came
-  from `feishu-docx`
-- the packaged `feishu-docx` attribution ships as the bundled
-  `lark_synced_export/THIRD_PARTY_NOTICES.md` notice inside the installed package
+There is no rendered mode, theme selection, custom CSS support, or token-only
+input path.
 
 ## Quick Start
 
@@ -63,43 +37,16 @@ lark-doc-exporter \
   --pdf-mode native
 ```
 
-That is the recommended PDF path unless you explicitly need local `--theme` /
-`--css` control.
-
-## Rendered PDF Mode
-
-Use rendered mode only when you need local styling control:
-
-```bash
-uvx --from playwright playwright install chromium
-
-lark-doc-exporter \
-  --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
-  --output-dir exports/rendered \
-  --formats markdown,pdf \
-  --theme default \
-  --pdf-mode rendered
-```
-
-If you already have a browser binary, you can point the exporter at it with
-`LARK_DOC_EXPORTER_CHROMIUM=/path/to/chromium`.
-
 ## Environment Check
 
 ```bash
 lark-doc-exporter doctor
 ```
 
-`doctor` always checks `lark-cli`, and it also reports Chromium readiness for
-`--pdf-mode rendered`. It now also reports whether the preferred `feishu-docx`
-Markdown provider is ready or whether the run will stay on the deprecated
-`legacy` fallback scheduled for removal in the next release. Native mode does
-not require Chromium, so missing Chromium no longer makes the overall doctor
-result fail.
+`doctor` checks whether `lark-cli` is ready for native PDF and whether
+`feishu-docx` is ready for Markdown.
 
 ## One-off Run
-
-If you do not want a persistent tool install:
 
 ```bash
 uvx lark-doc-exporter \
@@ -111,8 +58,6 @@ uvx lark-doc-exporter \
 
 ## Install As A Tool
 
-After installing the released package, companion-skill operations stay the same:
-
 ```bash
 lark-doc-exporter skill install --dry-run
 lark-doc-exporter skill install
@@ -123,19 +68,21 @@ Auto mode installs the companion skill into every detected supported host:
 - Codex: `~/.agents/skills/lark-doc-exporter`
 - Claude Code: `~/.claude/skills/lark-doc-exporter`
 
-Use `--host codex`, `--host claude`, or `--host all` to target specific hosts. `--dry-run` previews the install plan and target directories without writing files. Use `--force` only when you intentionally want to replace an existing unmanaged target directory.
+Use `--host codex`, `--host claude`, or `--host all` to target specific hosts.
+`--dry-run` previews the install plan and target directories without writing
+files. Use `--force` only when you intentionally want to replace an existing
+unmanaged target directory.
 
 ## Output
 
-- `markdown` keeps the localized Markdown file in the output directory.
-- `pdf` uses Feishu native PDF plus footer handling (`--pdf-mode native`) or local HTML/CSS + Chromium (`--pdf-mode rendered`).
-- `images/` contains same-run localized image assets used by the Markdown/PDF.
-- `markdown_provider` in the JSON result reports whether the run used
-  `feishu-docx` or `legacy`.
+- `markdown` writes the localized Markdown file into the output directory.
+- `pdf` writes the native Feishu PDF with footer post-processing.
+- `images/` contains same-run localized image assets used by the Markdown.
 
-### Native PDF Mode
+For combined `markdown,pdf` runs, the JSON result keeps the native PDF metadata
+fields and includes both output paths.
 
-Prefer this mode unless you need local theme/CSS control:
+## Native PDF Mode
 
 ```bash
 lark-doc-exporter \
@@ -147,34 +94,15 @@ lark-doc-exporter \
 
 Native mode rules:
 
-- only the PDF branch changes; markdown stays on the current markdown pipeline
-- explicit non-default `--theme` / `--css` are rejected
+- omitting `--pdf-mode` behaves the same as `--pdf-mode native`
+- any non-native `--pdf-mode` value is rejected
 - success states are `removed` and `not_found`
 - failure states emit warnings and keep `<stem>.native-raw.pdf` for inspection
 
-## Themes
+## Development
 
-Themes and custom CSS apply only to `--pdf-mode rendered`.
-
-Built-in themes:
-
-- `default`
-- `company`
-
-You can also layer custom CSS on top:
-
-```bash
-lark-doc-exporter \
-  --doc "https://dynamia-ai.feishu.cn/wiki/WEgBwqGYOiBoQikRzjncvJDonAg" \
-  --output-dir exports/company \
-  --formats pdf \
-  --theme company \
-  --css /path/to/your-company-print.css
-```
-
-## Development / Unreleased
-
-Use the Git URL or a local checkout only when you intentionally need unreleased code:
+Use the Git URL or a local checkout only when you intentionally need unreleased
+code:
 
 ```bash
 uvx --from git+https://github.com/spencercjh/lark-doc-exporter lark-doc-exporter doctor
@@ -191,11 +119,9 @@ uv run lark-doc-exporter doctor
 
 ## Notes
 
-- Markdown now prefers `feishu-docx` and only uses the temporary Feishu doc
-  when the run stays on the deprecated `legacy` bridge or when native PDF still
-  needs the expanded temp doc.
-- When a temp doc is created, it is deleted by default after the export step.
-  Use `--keep-temp-doc` only when you need to inspect that intermediate
-  document.
+- when a temp doc is created for the native PDF stage, it is deleted by default
+  after the export step
+- use `--keep-temp-doc` only when you need to inspect that intermediate
+  document
 - Feishu image `authcode` URLs expire quickly, so image localization happens in
-  the same run as the Markdown export.
+  the same run as the Markdown export

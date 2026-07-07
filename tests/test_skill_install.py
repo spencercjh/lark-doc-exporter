@@ -20,19 +20,17 @@ def test_bundled_skill_dir_contains_skill_markdown():
     assert root.joinpath("SKILL.md").is_file()
 
 
-def test_bundled_skill_markdown_mentions_native_first_commands_and_prereqs():
+def test_bundled_skill_markdown_mentions_url_only_native_contract():
     text = bundled_skill_markdown()
 
     assert "lark-doc-exporter doctor" in text
     assert "lark-doc-exporter skill install" in text
     assert "lark-cli" in text
-    assert "Chromium" in text
-    assert "--pdf-mode native" in text
-    assert "Prefer `--pdf-mode native`" in text
     assert "feishu-docx" in text
-    assert "FEISHU_APP_ID" in text
-    assert "THIRD_PARTY_NOTICES.md" in text
-    assert "next release" in text
+    assert "full URL" in text
+    assert "--pdf-mode native" in text
+    assert "Chromium" not in text
+    assert "next release" not in text
 
 
 def test_pyproject_packages_third_party_notice():

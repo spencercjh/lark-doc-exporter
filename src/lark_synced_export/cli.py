@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import io
+import inspect
 import json
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from .doctor import run_doctor
@@ -12,22 +15,23 @@ from .skill_install import run_skill_install
 
 def parse_export_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Expand Feishu/Lark synced blocks, export Markdown, and produce rendered or native PDF output.",
+        description=(
+            "Export Feishu/Lark document URLs to Markdown and native Feishu PDF. "
+            "Only native Feishu PDF is supported."
+        ),
         epilog=(
             "Other commands:\n"
             "  doctor\n"
             "  skill install [--host {auto,codex,claude,all}] [--force] [--dry-run]\n"
             "\n"
-            "Markdown provider environment:\n"
-            "  LARK_DOC_EXPORTER_MARKDOWN_PROVIDER=auto|feishu-docx|legacy\n"
-            "  `legacy` is a deprecated compatibility bridge and will be removed in the next release."
+            "Inputs must be full Feishu/Lark document URLs supported by the native-only exporter."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--doc",
         required=True,
-        help="Original docx/wiki URL or token accepted by `lark-cli docs +fetch`.",
+        help="Full Feishu/Lark document URL to export.",
     )
     parser.add_argument(
         "--output-dir",
@@ -55,20 +59,10 @@ def parse_export_args(argv: list[str]) -> argparse.Namespace:
         help="Keep the temporary expanded doc instead of deleting it after the Markdown export step. Default: false.",
     )
     parser.add_argument(
-        "--theme",
-        default="default",
-        help="Built-in rendered-PDF theme name. Supported: default, company.",
-    )
-    parser.add_argument(
-        "--css",
-        default="",
-        help="Optional extra CSS file layered on top of the selected theme for rendered PDF output.",
-    )
-    parser.add_argument(
         "--pdf-mode",
-        choices=["rendered", "native"],
-        default="rendered",
-        help="PDF pipeline selection. Use `rendered` for local HTML/Chromium PDF or `native` for Feishu native PDF plus AI footer handling.",
+        choices=["native"],
+        default="native",
+        help="PDF pipeline selection. Only native Feishu PDF is supported.",
     )
     return parser.parse_args(argv)
 
@@ -129,20 +123,29 @@ def run_main(argv: list[str] | None = None) -> int:
     invalid = [fmt for fmt in formats if fmt not in allowed]
     if invalid:
         raise SystemExit(f"unsupported formats: {', '.join(invalid)}")
-    if args.pdf_mode == "native" and (args.theme != "default" or bool(args.css)):
-        raise SystemExit("--pdf-mode native does not support explicit --theme or --css")
+    export_kwargs = {
+        "doc_ref": args.doc,
+        "output_dir": Path(args.output_dir).expanduser().resolve(),
+        "formats": formats,
+        "title_suffix": args.title_suffix,
+        "file_stem": args.file_stem,
+        "keep_temp_doc": args.keep_temp_doc,
+        "pdf_mode": args.pdf_mode,
+    }
+    export_signature = inspect.signature(export_document)
+    if "theme_name" in export_signature.parameters:
+        export_kwargs["theme_name"] = "default"
+    if "override_css" in export_signature.parameters:
+        export_kwargs["override_css"] = None
 
-    result = export_document(
-        doc_ref=args.doc,
-        output_dir=Path(args.output_dir).expanduser().resolve(),
-        formats=formats,
-        title_suffix=args.title_suffix,
-        file_stem=args.file_stem,
-        keep_temp_doc=args.keep_temp_doc,
-        theme_name=args.theme,
-        override_css=Path(args.css).expanduser().resolve() if args.css else None,
-        pdf_mode=args.pdf_mode,
-    )
+    export_stdout = io.StringIO()
+    try:
+        with redirect_stdout(export_stdout):
+            result = export_document(**export_kwargs)
+    finally:
+        leaked_stdout = export_stdout.getvalue()
+        if leaked_stdout:
+            sys.stderr.write(leaked_stdout)
     for warning in result.get("warnings", []):
         sys.stderr.write(f"warning: {warning}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))

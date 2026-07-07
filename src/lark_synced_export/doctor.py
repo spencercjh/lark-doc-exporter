@@ -4,8 +4,11 @@ from dataclasses import asdict, dataclass
 import shutil
 import subprocess
 
-from .feishu_docx_bridge import resolve_markdown_provider
-from .pdf_runtime import check_chromium_ready
+from .feishu_docx_bridge import (
+    require_feishu_docx_credentials,
+    require_feishu_docx_exporter,
+    validate_markdown_doc_ref,
+)
 
 
 @dataclass
@@ -45,53 +48,31 @@ def check_lark_cli() -> DoctorCheck:
     )
 
 
-def check_pdf_runtime() -> DoctorCheck:
-    ok, detail = check_chromium_ready()
-    if ok:
-        detail = f"{detail} This check only applies to rendered PDF output."
-    else:
-        detail = (
-            "Chromium is not ready for rendered PDF output. Native PDF does not "
-            f"require Chromium. {detail}"
-        )
-    return DoctorCheck(name="chromium", ok=ok, detail=detail, required=False)
-
-
 def check_feishu_docx_markdown() -> DoctorCheck:
     try:
-        selection = resolve_markdown_provider(
+        validate_markdown_doc_ref("https://example.feishu.cn/docx/placeholder")
+        require_feishu_docx_exporter()
+        credentials = require_feishu_docx_credentials(
             "https://example.feishu.cn/docx/placeholder"
         )
     except Exception as exc:
         return DoctorCheck(
             name="feishu-docx-markdown",
             ok=False,
-            detail=f"Preferred Markdown provider is not ready: {exc}",
-            required=False,
-        )
-
-    if selection.provider == "feishu-docx":
-        return DoctorCheck(
-            name="feishu-docx-markdown",
-            ok=True,
-            detail=f"Preferred Markdown provider is ready ({selection.detail}).",
+            detail=str(exc),
             required=False,
         )
 
     return DoctorCheck(
         name="feishu-docx-markdown",
-        ok=False,
-        detail=(
-            "Preferred Markdown provider is unavailable; deprecated legacy "
-            "compatibility mode will run and is scheduled for removal in the "
-            f"next release ({selection.detail})."
-        ),
+        ok=True,
+        detail=f"feishu-docx markdown is ready ({credentials.source}).",
         required=False,
     )
 
 
 def run_doctor() -> dict:
-    checks = [check_lark_cli(), check_pdf_runtime(), check_feishu_docx_markdown()]
+    checks = [check_lark_cli(), check_feishu_docx_markdown()]
     return {
         "ok": all(check.ok for check in checks if check.required),
         "checks": [asdict(check) for check in checks],

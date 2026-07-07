@@ -1,2 +1,1 @@
-> [!TIP]
-> 💡 公开 E2E 高亮块：这是飞书 callout。
+公开 E2E 高亮块：这是飞书 callout。

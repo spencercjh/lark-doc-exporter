@@ -63,3 +63,17 @@ def test_validate_release_versions_requires_explicit_pyproject_version(tmp_path:
 
     with pytest.raises(ValueError, match=r"could not find \[project\]\.version"):
         validate_release_versions("v0.2.0", pyproject, module_init)
+
+
+def test_repo_release_version_files_match_native_only_release():
+    repo_root = Path(__file__).resolve().parents[1]
+
+    assert validate_release_versions(
+        "v0.6.0",
+        repo_root / "pyproject.toml",
+        repo_root / "src" / "lark_synced_export" / "__init__.py",
+    ) == ReleaseVersions(
+        tag="0.6.0",
+        pyproject="0.6.0",
+        module_init="0.6.0",
+    )
