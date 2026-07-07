@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -24,6 +25,7 @@ from public_doc_e2e_case import FeaturePoint
 
 
 SNAPSHOT_ROOT = Path(__file__).with_name("e2e_snapshots") / "public_doc"
+LOCAL_SKIP_ENV = "LARK_DOC_EXPORTER_ALLOW_LOCAL_PUBLIC_DOC_SKIP"
 
 
 def test_build_stable_result_filters_runtime_fields():
@@ -202,9 +204,31 @@ def test_is_lark_cli_identity_ready_rejects_timeout(monkeypatch):
     assert "timed out" in detail
 
 
-def test_require_public_doc_export_prereqs_ready_skips_when_identity_unavailable(
+def test_require_public_doc_export_prereqs_ready_fails_when_identity_unavailable(
     monkeypatch,
 ):
+    monkeypatch.setattr(
+        "test_public_doc_e2e.resolve_lark_cli_identity",
+        lambda: "bot",
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (False, "Bot identity unavailable"),
+    )
+
+    with pytest.raises(
+        pytest.fail.Exception,
+        match="public doc export prerequisites missing: lark-cli bot identity is not ready: Bot identity unavailable",
+    ):
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
+
+
+def test_require_public_doc_export_prereqs_ready_skips_when_identity_unavailable_with_local_gate(
+    monkeypatch,
+):
+    monkeypatch.setenv(LOCAL_SKIP_ENV, "1")
     monkeypatch.setattr(
         "test_public_doc_e2e.resolve_lark_cli_identity",
         lambda: "bot",
@@ -223,9 +247,33 @@ def test_require_public_doc_export_prereqs_ready_skips_when_identity_unavailable
         )
 
 
-def test_require_public_doc_export_prereqs_ready_skips_when_feishu_docx_credentials_missing(
+def test_require_public_doc_export_prereqs_ready_fails_when_feishu_docx_credentials_missing(
     monkeypatch,
 ):
+    monkeypatch.setattr(
+        "test_public_doc_e2e.is_lark_cli_identity_ready",
+        lambda _identity: (True, "User identity: ready"),
+    )
+    monkeypatch.setattr(
+        "test_public_doc_e2e.require_feishu_docx_credentials",
+        lambda _doc_ref: (_ for _ in ()).throw(
+            RuntimeError("feishu-docx markdown export requires FEISHU_APP_ID")
+        ),
+    )
+
+    with pytest.raises(
+        pytest.fail.Exception,
+        match="public doc export prerequisites missing: feishu-docx markdown export requires FEISHU_APP_ID",
+    ):
+        require_public_doc_export_prereqs_ready(
+            "https://dynamia-ai.feishu.cn/docx/demo"
+        )
+
+
+def test_require_public_doc_export_prereqs_ready_skips_when_feishu_docx_credentials_missing_with_local_gate(
+    monkeypatch,
+):
+    monkeypatch.setenv(LOCAL_SKIP_ENV, "1")
     monkeypatch.setattr(
         "test_public_doc_e2e.is_lark_cli_identity_ready",
         lambda _identity: (True, "User identity: ready"),
@@ -353,19 +401,30 @@ def is_lark_cli_identity_ready(identity: str) -> tuple[bool, str]:
     return True, selected.get("message", f"{label} ready")
 
 
+def allow_local_public_doc_skip() -> bool:
+    raw = os.environ.get(LOCAL_SKIP_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def require_public_doc_export_prereqs_ready(doc_ref: str) -> None:
     validate_markdown_doc_ref(doc_ref)
     identity = resolve_lark_cli_identity()
     auth_ready, auth_detail = is_lark_cli_identity_ready(identity)
     if not auth_ready:
-        pytest.skip(
+        message = (
             "public doc export prerequisites missing: lark-cli "
             f"{identity} identity is not ready: {auth_detail}"
         )
+        if allow_local_public_doc_skip():
+            pytest.skip(message)
+        pytest.fail(message)
     try:
         require_feishu_docx_credentials(doc_ref)
     except RuntimeError as exc:
-        pytest.skip(f"public doc export prerequisites missing: {exc}")
+        message = f"public doc export prerequisites missing: {exc}"
+        if allow_local_public_doc_skip():
+            pytest.skip(message)
+        pytest.fail(message)
 
 
 def extract_pdf_text(pdf_path: Path) -> str:
