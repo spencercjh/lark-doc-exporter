@@ -26,6 +26,7 @@ from public_doc_e2e_case import FeaturePoint
 
 SNAPSHOT_ROOT = Path(__file__).with_name("e2e_snapshots") / "public_doc"
 LOCAL_SKIP_ENV = "LARK_DOC_EXPORTER_ALLOW_LOCAL_PUBLIC_DOC_SKIP"
+MARKDOWN_IMAGE_LINK_RE = re.compile(r"!\[[^\]]*]\(([^)]+)\)")
 
 
 def test_build_stable_result_filters_runtime_fields():
@@ -52,6 +53,21 @@ def test_build_stable_result_filters_runtime_fields():
 
 def test_normalize_pdf_text_collapses_whitespace():
     assert normalize_pdf_text("A\u200b  \n\nB\t\tC\ufeff\n") == "A B C"
+
+
+def test_collect_localized_image_targets_ignores_non_image_assets():
+    markdown = "\n".join(
+        [
+            "![cover](images/cover.png)",
+            "[attachment](images/capability_audit_attachment.txt)",
+            "![diagram](<images/diagram.svg>)",
+        ]
+    )
+
+    assert collect_localized_image_targets(markdown) == [
+        "images/cover.png",
+        "images/diagram.svg",
+    ]
 
 
 def test_assert_feature_point_reports_named_failure(tmp_path: Path):
@@ -322,6 +338,17 @@ def load_json_snapshot(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def collect_localized_image_targets(markdown_text: str) -> list[str]:
+    targets: list[str] = []
+    for match in MARKDOWN_IMAGE_LINK_RE.finditer(markdown_text):
+        target = match.group(1).strip()
+        if target.startswith("<") and target.endswith(">"):
+            target = target[1:-1].strip()
+        if target.startswith("images/"):
+            targets.append(target)
+    return targets
+
+
 def assert_feature_point(
     feature: FeaturePoint,
     markdown_text: str,
@@ -503,7 +530,10 @@ def test_public_doc_export_e2e(tmp_path: Path, capsys):
     if "localized_images" in expected_result:
         images_dir = output_dir / "images"
         assert images_dir.is_dir()
-        assert len(sorted(images_dir.iterdir())) == expected_result["localized_images"]
+        localized_image_targets = collect_localized_image_targets(markdown_text)
+        assert len(localized_image_targets) == expected_result["localized_images"]
+        for relative_target in localized_image_targets:
+            assert (output_dir / relative_target).is_file()
 
     for feature in case.FEATURE_POINTS:
         assert_feature_point(
