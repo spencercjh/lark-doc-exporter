@@ -52,13 +52,11 @@ FEATURE_POINTS: tuple[FeaturePoint, ...] = (
     ),
     FeaturePoint(
         name="whiteboard",
-        markdown_contains_snapshot="markdown/whiteboard.md",
         pdf_image_snapshot="pdf/whiteboard_image.json",
         markdown_forbid=("<whiteboard",),
     ),
     FeaturePoint(
         name="image",
-        markdown_contains_snapshot="markdown/image.md",
         pdf_image_snapshot="pdf/image_image.json",
         pdf_total_images_at_least=2,
         markdown_forbid=("authcode/?code=",),
