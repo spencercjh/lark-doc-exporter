@@ -11,6 +11,7 @@ requires-python = ">=3.14"
 dependencies = [
   "kitup-sdk @ git+https://github.com/lathe-cli/kitup.git@main#subdirectory=python",
   "feishu-docx @ git+https://github.com/spencercjh/feishu-docx@7517b56",
+  "markdown>=3.7,<4",
   "pymupdf>=1.26,<2",
 ]
 
