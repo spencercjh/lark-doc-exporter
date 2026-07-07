@@ -137,6 +137,40 @@ def test_run_main_returns_one_and_prints_json_for_controlled_native_failure(
     assert "native PDF footer post-process failed" in captured.err
 
 
+def test_run_main_redirects_exporter_stdout_noise_to_stderr(
+    monkeypatch, capsys, tmp_path: Path
+):
+    def fake_export_document(**kwargs):
+        print(f"✓ 导出成功: {tmp_path / 'demo.md'}")
+        return {
+            "ok": True,
+            "doc": kwargs["doc_ref"],
+            "pdf_mode": kwargs["pdf_mode"],
+            "warnings": [],
+            "outputs": {"markdown": str(tmp_path / "demo.md")},
+        }
+
+    monkeypatch.setattr("lark_synced_export.cli.export_document", fake_export_document)
+
+    exit_code = run_main(
+        [
+            "--doc",
+            "https://example.feishu.cn/docx/abc123",
+            "--output-dir",
+            str(tmp_path),
+            "--formats",
+            "markdown",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["outputs"]["markdown"] == str(tmp_path / "demo.md")
+    assert "导出成功" in captured.err
+
+
 def test_run_main_help_mentions_native_only_contract(capsys):
     with pytest.raises(SystemExit) as excinfo:
         run_main(["--help"])

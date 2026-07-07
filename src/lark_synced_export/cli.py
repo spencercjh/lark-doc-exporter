@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import io
 import inspect
 import json
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from .doctor import run_doctor
@@ -136,7 +138,14 @@ def run_main(argv: list[str] | None = None) -> int:
     if "override_css" in export_signature.parameters:
         export_kwargs["override_css"] = None
 
-    result = export_document(**export_kwargs)
+    export_stdout = io.StringIO()
+    try:
+        with redirect_stdout(export_stdout):
+            result = export_document(**export_kwargs)
+    finally:
+        leaked_stdout = export_stdout.getvalue()
+        if leaked_stdout:
+            sys.stderr.write(leaked_stdout)
     for warning in result.get("warnings", []):
         sys.stderr.write(f"warning: {warning}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
