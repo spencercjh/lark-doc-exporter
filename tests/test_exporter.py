@@ -218,6 +218,163 @@ def test_export_doc_polls_task_result_and_downloads_async_export(
     ]
 
 
+def test_export_doc_retries_task_result_timeout_error_and_downloads_async_export(
+    monkeypatch, tmp_path: Path
+):
+    commands: list[tuple[str, ...]] = []
+    task_result_calls = 0
+    sleeps: list[float] = []
+
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        nonlocal task_result_calls
+        commands.append(tuple(cmd))
+        if cmd[2] == "+export":
+            assert cwd == tmp_path
+            return {"data": {"ticket": "ticket-123"}}
+        if cmd[2] == "+task_result":
+            task_result_calls += 1
+            if task_result_calls == 1:
+                raise subprocess.CalledProcessError(
+                    returncode=5,
+                    cmd=cmd,
+                    output=json.dumps(
+                        {
+                            "ok": False,
+                            "error": {
+                                "type": "timeout",
+                                "message": "timed out waiting for export task result",
+                            },
+                        }
+                    ),
+                    stderr="",
+                )
+            return {
+                "data": {
+                    "ready": True,
+                    "failed": False,
+                    "file_token": "exported-file-token",
+                }
+            }
+        if cmd[2] == "+export-download":
+            assert cwd == tmp_path
+            return {"data": {"saved_path": str(tmp_path / "exports" / "demo.pdf")}}
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+    monkeypatch.setattr(
+        exporter_module.time,
+        "sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    result = export_doc(
+        temp_doc_token="doc-token",
+        output_dir=tmp_path / "exports",
+        file_stem="demo",
+        formats=["pdf"],
+        lark_cli_identity="bot",
+    )
+
+    assert result == {"pdf": str(tmp_path / "exports" / "demo.pdf")}
+    assert sleeps == [2.0]
+    assert commands == [
+        (
+            "lark-cli",
+            "drive",
+            "+export",
+            "--as",
+            "bot",
+            "--token",
+            "doc-token",
+            "--doc-type",
+            "docx",
+            "--file-extension",
+            "pdf",
+            "--file-name",
+            "demo.pdf",
+            "--output-dir",
+            "exports",
+            "--overwrite",
+        ),
+        (
+            "lark-cli",
+            "drive",
+            "+task_result",
+            "--as",
+            "bot",
+            "--scenario",
+            "export",
+            "--ticket",
+            "ticket-123",
+            "--file-token",
+            "doc-token",
+        ),
+        (
+            "lark-cli",
+            "drive",
+            "+task_result",
+            "--as",
+            "bot",
+            "--scenario",
+            "export",
+            "--ticket",
+            "ticket-123",
+            "--file-token",
+            "doc-token",
+        ),
+        (
+            "lark-cli",
+            "drive",
+            "+export-download",
+            "--as",
+            "bot",
+            "--file-token",
+            "exported-file-token",
+            "--file-name",
+            "demo.pdf",
+            "--output-dir",
+            "exports",
+            "--overwrite",
+        ),
+    ]
+
+
+def test_export_doc_surfaces_structured_task_result_cli_errors(
+    monkeypatch, tmp_path: Path
+):
+    def fake_run_json(cmd: list[str], cwd: Path | None = None) -> dict:
+        if cmd[2] == "+export":
+            assert cwd == tmp_path
+            return {"data": {"ticket": "ticket-123"}}
+        if cmd[2] == "+task_result":
+            raise subprocess.CalledProcessError(
+                returncode=5,
+                cmd=cmd,
+                output=json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": 1069904,
+                            "message": "invalid param",
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(exporter_module, "run_json", fake_run_json)
+
+    with pytest.raises(RuntimeError, match="invalid param"):
+        export_doc(
+            temp_doc_token="doc-token",
+            output_dir=tmp_path / "exports",
+            file_stem="demo",
+            formats=["pdf"],
+            lark_cli_identity="bot",
+        )
+
+
 def test_delete_temp_doc_ignores_already_deleted_error(monkeypatch):
     commands: list[tuple[str, ...]] = []
     payload = {

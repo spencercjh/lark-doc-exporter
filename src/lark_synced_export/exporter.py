@@ -43,6 +43,72 @@ def run_json(cmd: list[str], cwd: Path | None = None) -> dict:
     return json.loads(proc.stdout)
 
 
+def parse_json_dict(raw: str) -> dict[str, object] | None:
+    if not raw:
+        return None
+    try:
+        candidate = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(candidate, dict):
+        return candidate
+    return None
+
+
+def parse_called_process_payload(
+    exc: subprocess.CalledProcessError,
+) -> dict[str, object] | None:
+    for raw in (exc.stdout, exc.stderr):
+        payload = parse_json_dict(raw)
+        if payload is not None:
+            return payload
+    return None
+
+
+def format_called_process_failure(
+    exc: subprocess.CalledProcessError,
+    payload: dict[str, object] | None,
+) -> str:
+    if payload is not None:
+        return json.dumps(payload, ensure_ascii=False)
+    combined = "\n".join(
+        chunk.strip() for chunk in (exc.stdout, exc.stderr) if chunk and chunk.strip()
+    )
+    return combined or str(exc)
+
+
+def is_retryable_task_result_timeout(
+    exc: subprocess.CalledProcessError,
+    payload: dict[str, object] | None,
+) -> bool:
+    if payload is not None and payload.get("ok") is True:
+        return False
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message_parts: list[str] = []
+    if isinstance(error, dict):
+        message_parts.extend(
+            str(error.get(key, ""))
+            for key in ("type", "subtype", "message")
+            if error.get(key) is not None
+        )
+    else:
+        message_parts.extend(
+            chunk for chunk in (exc.stdout, exc.stderr) if chunk and chunk.strip()
+        )
+    lowered = " ".join(message_parts).lower()
+    return any(
+        needle in lowered
+        for needle in (
+            "timeout",
+            "timed out",
+            "deadline exceeded",
+            "context deadline exceeded",
+            "超时",
+        )
+    )
+
+
 LARK_CLI_IDENTITY_ENV = "LARK_DOC_EXPORTER_IDENTITY"
 EXPORT_TASK_POLL_INTERVAL_SECONDS = 2.0
 # Native export tasks can take longer on GitHub-hosted runners than on local
@@ -298,21 +364,32 @@ def export_doc(
         deadline = time.monotonic() + EXPORT_TASK_POLL_TIMEOUT_SECONDS
         last_task_payload: dict | None = None
         while time.monotonic() < deadline:
-            task_payload = run_json(
-                [
-                    "lark-cli",
-                    "drive",
-                    "+task_result",
-                    "--as",
-                    lark_cli_identity,
-                    "--scenario",
-                    "export",
-                    "--ticket",
-                    str(ticket),
-                    "--file-token",
-                    temp_doc_token,
-                ]
-            )
+            try:
+                task_payload = run_json(
+                    [
+                        "lark-cli",
+                        "drive",
+                        "+task_result",
+                        "--as",
+                        lark_cli_identity,
+                        "--scenario",
+                        "export",
+                        "--ticket",
+                        str(ticket),
+                        "--file-token",
+                        temp_doc_token,
+                    ]
+                )
+            except subprocess.CalledProcessError as exc:
+                task_payload = parse_called_process_payload(exc)
+                last_task_payload = task_payload
+                if is_retryable_task_result_timeout(exc, task_payload):
+                    time.sleep(EXPORT_TASK_POLL_INTERVAL_SECONDS)
+                    continue
+                raise RuntimeError(
+                    "lark-cli drive +task_result failed: "
+                    f"{format_called_process_failure(exc, task_payload)}"
+                ) from exc
             last_task_payload = task_payload
             task_data = task_payload.get("data", {})
             if task_data.get("failed"):
