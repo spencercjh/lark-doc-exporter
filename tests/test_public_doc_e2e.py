@@ -55,6 +55,13 @@ def test_normalize_pdf_text_collapses_whitespace():
     assert normalize_pdf_text("A\u200b  \n\nB\t\tC\ufeff\n") == "A B C"
 
 
+def test_normalize_markdown_text_strips_space_before_cjk_punctuation():
+    assert (
+        normalize_markdown_text("部署 **HAMi AI Platform** ，并完成验证。\n")
+        == "部署 **HAMi AI Platform**，并完成验证。"
+    )
+
+
 def test_collect_localized_image_targets_ignores_non_image_assets():
     markdown = "\n".join(
         [
@@ -330,6 +337,14 @@ def normalize_pdf_text(text: str) -> str:
     return " ".join(part.strip() for part in text.splitlines() if part.strip())
 
 
+def normalize_markdown_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
+    text = re.sub(r"[ \t]+([，。！？；：、）】》」』])", r"\1", text)
+    text = re.sub(r"([（【《「『])[ \t]+", r"\1", text)
+    return text.strip()
+
+
 def load_snapshot(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
@@ -358,10 +373,10 @@ def assert_feature_point(
     snapshot_root: Path = SNAPSHOT_ROOT,
 ) -> None:
     if feature.markdown_contains_snapshot:
-        expected_markdown = load_snapshot(
-            snapshot_root / feature.markdown_contains_snapshot
+        expected_markdown = normalize_markdown_text(
+            load_snapshot(snapshot_root / feature.markdown_contains_snapshot)
         )
-        assert expected_markdown in markdown_text, (
+        assert expected_markdown in normalize_markdown_text(markdown_text), (
             f"feature {feature.name}: markdown snapshot missing"
         )
 
